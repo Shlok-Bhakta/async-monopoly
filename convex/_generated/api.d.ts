@@ -11,8 +11,10 @@
 import type * as auth from "../auth.js";
 import type * as game from "../game.js";
 import type * as http from "../http.js";
+import type * as monopoly_auction from "../monopoly/auction.js";
 import type * as monopoly_board from "../monopoly/board.js";
 import type * as monopoly_cards from "../monopoly/cards.js";
+import type * as monopoly_casino from "../monopoly/casino.js";
 import type * as monopoly_engine from "../monopoly/engine.js";
 
 import type {
@@ -25,8 +27,10 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   game: typeof game;
   http: typeof http;
+  "monopoly/auction": typeof monopoly_auction;
   "monopoly/board": typeof monopoly_board;
   "monopoly/cards": typeof monopoly_cards;
+  "monopoly/casino": typeof monopoly_casino;
   "monopoly/engine": typeof monopoly_engine;
 }>;
 
