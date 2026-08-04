@@ -24,6 +24,13 @@ import {
   liquidateHouses,
 } from "./monopoly/engine";
 import { CHANCE_DECK, COMMUNITY_CHEST_DECK } from "./monopoly/cards";
+import {
+  bid as auctionBidAction,
+  pass as auctionPassAction,
+  maybeFinish as auctionMaybeFinish,
+  buildBiddingOrder,
+  type AuctionState,
+} from "./monopoly/auction";
 
 const TOKENS = ["🟥 Battleship", "🐕 Dog", "🖐️ Hand", "👢 Boot", "🎩 Top Hat", "🐈 Cat", "🚗 Car", "🛒 Wheelbarrow"];
 const GAME_NAME_ANIMALS = ["Orca", "Kiwi", "Axolotl", "Capybara", "Mantis", "Dodo", "Narwhal", "Taco"];
@@ -646,15 +653,15 @@ export const declineBuy = mutation({
     const spaceIndex = game.phaseData.space as number;
     const space = getSpace(spaceIndex);
     const order = players.filter((p: any) => !p.bankrupt).sort((a: any, b: any) => a.seatIndex - b.seatIndex);
-    // Start bidding with the player after the current turn player.
-    const startIdx = order.findIndex((p: any) => p.seatIndex === game.turn);
-    const bidding = [...order.slice(startIdx + 1), ...order.slice(0, startIdx + 1)];
+    // Start bidding with the player after the current turn player; the
+    // declining player bids last.
+    const bidding = buildBiddingOrder(order, game.turn);
     const auctionId = await ctx.db.insert("auctions", {
       gameId,
       spaceIndex,
       currentBid: 0,
       currentBidder: undefined,
-      order: bidding.map((p: any) => p._id),
+      order: bidding,
       nextIndex: 0,
       status: "active",
       createdAt: now(),
@@ -673,15 +680,19 @@ export const auctionBid = mutation({
     if (game.phase !== "auction") throw new Error("No auction right now");
     const auction = (await ctx.db.get(game.phaseData.auctionId as Id<"auctions">))!;
     if (!auction || auction.status !== "active") throw new Error("Auction is over");
-    const currentBidderId = auction.order[auction.nextIndex];
-    if (currentBidderId !== player._id) throw new Error("Not your bid");
-    if (amount <= auction.currentBid) throw new Error("Bid must be higher than current bid");
-    if (amount > player.money) throw new Error("You cannot afford that bid");
-    const nextIndex = auction.order.length === 0 ? 0 : (auction.nextIndex + 1) % auction.order.length;
-    await ctx.db.patch(auction._id, { currentBid: amount, currentBidder: player._id, nextIndex });
+    const state: AuctionState<Id<"players">> = {
+      spaceIndex: auction.spaceIndex,
+      currentBid: auction.currentBid,
+      currentBidder: auction.currentBidder,
+      order: auction.order,
+      nextIndex: auction.nextIndex,
+      status: auction.status,
+    };
+    const next = auctionBidAction(state, player._id, amount, player.money);
+    await ctx.db.patch(auction._id, { currentBid: next.currentBid, currentBidder: next.currentBidder, nextIndex: next.nextIndex });
     await log(ctx, gameId, player._id, "auction", `${player.name} bids $${amount}.`);
     await ctx.db.patch(gameId, { lastActionAt: now() });
-    await maybeFinishAuction(ctx, gameId, game);
+    await settleAuctionIfDone(ctx, gameId, game, next);
   },
 });
 
@@ -694,47 +705,39 @@ export const auctionPass = mutation({
     if (game.phase !== "auction") throw new Error("No auction right now");
     const auction = (await ctx.db.get(game.phaseData.auctionId as Id<"auctions">))!;
     if (!auction || auction.status !== "active") throw new Error("Auction is over");
-    const currentBidderId = auction.order[auction.nextIndex];
-    if (currentBidderId !== player._id) throw new Error("Not your turn to bid");
-    const remaining = auction.order.filter((id: any) => id !== player._id);
-    // When someone passes, the array shrinks: keep the same index (it now
-    // points at the next player), wrapping to 0 if we removed the tail.
-    const nextIndex = remaining.length === 0 ? 0 : auction.nextIndex >= remaining.length ? 0 : auction.nextIndex;
-    await ctx.db.patch(auction._id, { order: remaining, nextIndex });
+    const state: AuctionState<Id<"players">> = {
+      spaceIndex: auction.spaceIndex,
+      currentBid: auction.currentBid,
+      currentBidder: auction.currentBidder,
+      order: auction.order,
+      nextIndex: auction.nextIndex,
+      status: auction.status,
+    };
+    const next = auctionPassAction(state, player._id);
+    await ctx.db.patch(auction._id, { order: next.order, nextIndex: next.nextIndex });
     await log(ctx, gameId, player._id, "auction", `${player.name} passes on the auction.`);
     await ctx.db.patch(gameId, { lastActionAt: now() });
-    await maybeFinishAuction(ctx, gameId, game);
+    await settleAuctionIfDone(ctx, gameId, game, next);
   },
 });
 
-async function maybeFinishAuction(ctx: any, gameId: any, game: any) {
+async function settleAuctionIfDone(ctx: any, gameId: any, game: any, state: AuctionState<Id<"players">>) {
   const auction = (await ctx.db.get(game.phaseData.auctionId as Id<"auctions">))!;
   if (!auction || auction.status !== "active") return;
-  const aliveInOrder = auction.order.filter(() => true);
-  if (aliveInOrder.length === 0) {
-    // everyone passed
-    await ctx.db.patch(auction._id, { status: "done" });
+  const result = auctionMaybeFinish(state);
+  if (!result) return; // auction continues — the current bidder must act
+  await ctx.db.patch(auction._id, { status: "done", winner: result.winnerId, winningBid: result.winningBid });
+  if (result.sold && result.winnerId) {
+    const winner = (await ctx.db.get(result.winnerId as Id<"players">))!;
+    await ctx.db.patch(winner._id, {
+      money: winner.money - result.winningBid,
+      properties: [...winner.properties, auction.spaceIndex],
+    });
+    await log(ctx, gameId, result.winnerId, "auction", `${winner.name} wins ${getSpace(auction.spaceIndex).name} for $${result.winningBid}.`);
+  } else {
     await log(ctx, gameId, null, "auction", "No one bid — property stays with the bank.");
-    await ctx.db.patch(gameId, { phase: "manage", phaseData: {} });
-    return;
   }
-  if (aliveInOrder.length === 1) {
-    const lastId = aliveInOrder[0];
-    if (auction.currentBid > 0) {
-      await ctx.db.patch(auction._id, { status: "done", winner: lastId, winningBid: auction.currentBid });
-      const winner = (await ctx.db.get(lastId as Id<"players">))!;
-      await ctx.db.patch(winner._id, {
-        money: winner.money - auction.currentBid,
-        properties: [...winner.properties, auction.spaceIndex],
-      });
-      await log(ctx, gameId, lastId, "auction", `${winner.name} wins ${getSpace(auction.spaceIndex).name} for $${auction.currentBid}.`);
-    } else {
-      await ctx.db.patch(auction._id, { status: "done" });
-      await log(ctx, gameId, null, "auction", "No one bid — property stays with the bank.");
-    }
-    await ctx.db.patch(gameId, { phase: "manage", phaseData: {} });
-    return;
-  }
+  await ctx.db.patch(gameId, { phase: "manage", phaseData: {} });
 }
 
 export const endTurn = mutation({

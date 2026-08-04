@@ -48,8 +48,19 @@ export function Game() {
   const phase = data?.game.phase ?? "lobby";
 
   const myAction = useMemo(() => {
-    if (!data || !myTurn) return null;
+    if (!data) return null;
     const p = data.game.phaseData ?? {};
+    // Auctions are open to EVERY alive player, not just the turn player.
+    // The turn player who declined gets the last bid; everyone else bids in
+    // seat order. Gating this on myTurn is what deadlocked the game.
+    if (phase === "auction") {
+      const auction = data.auction;
+      if (!auction) return null;
+      const myIdx = auction.order.findIndex((id: string) => id === data.myPlayerId);
+      const isMyBid = myIdx === auction.nextIndex;
+      return { kind: "auction" as const, isMyBid, auction };
+    }
+    if (!myTurn) return null;
     switch (phase) {
       case "roll":
         return { kind: "roll" as const };
@@ -57,13 +68,6 @@ export function Game() {
         return { kind: "jail" as const };
       case "buy":
         return { kind: "buy" as const, space: p.space as number };
-      case "auction": {
-        const auction = data.auction;
-        if (!auction) return null;
-        const myIdx = auction.order.findIndex((id: string) => id === data.myPlayerId);
-        const isMyBid = myIdx === auction.nextIndex;
-        return { kind: "auction" as const, isMyBid, auction };
-      }
       case "debt":
         return { kind: "debt" as const, amount: p.amount as number, reason: p.reason as string };
       case "manage":
@@ -215,7 +219,8 @@ function ActionBar(props: any) {
     );
   }
 
-  if (!myTurn || !myAction) {
+  const isAuction = myAction?.kind === "auction";
+  if (!myAction || (!myTurn && !isAuction)) {
     return (
       <div className="action-bar">
         <div className="action-status">⏳ Waiting on {current?.name}</div>
