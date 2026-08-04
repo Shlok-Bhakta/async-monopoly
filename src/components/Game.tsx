@@ -113,11 +113,11 @@ export function Game() {
               <span className="muted tiny">{p.token.split(" ")[1]}</span>
             </div>
           ))}
-          <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-            <button className="btn-primary" disabled={data.players.length < 2} onClick={() => run(() => startGame({ gameId: data.game._id }))}>
+          <div className="flex flex-col gap-2 mt-4 md:flex-row md:gap-3">
+            <button className="btn-primary md:flex-none" disabled={data.players.length < 2} onClick={() => run(() => startGame({ gameId: data.game._id }))}>
               Start game ({data.players.length} player{data.players.length === 1 ? "" : "s"})
             </button>
-            <button className="btn-ghost" onClick={() => run(() => leaveGame({ gameId: data.game._id }).then(() => navigate("/")))}>
+            <button className="btn-ghost md:flex-none" onClick={() => run(() => leaveGame({ gameId: data.game._id }).then(() => navigate("/")))}>
               Leave lobby
             </button>
           </div>

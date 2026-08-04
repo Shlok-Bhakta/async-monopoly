@@ -84,28 +84,28 @@ export function Board({ players, lastRoll, onSpaceClick, selectedSpace, highligh
     } else if (space.type === "tax") {
       content = (
         <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name" style={{ fontSize: "0.6rem" }}>{space.name}</div>
+          <div className="name">{space.name}</div>
           <div className="price">${space.tax}</div>
         </div>
       );
     } else if (space.type === "chance") {
       content = (
         <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name" style={{ fontSize: "1.05rem", color: "#c0392b" }}>?</div>
-          <div className="name" style={{ fontSize: "0.55rem" }}>Chance</div>
+          <div className="name symbol" style={{ color: "#c0392b" }}>?</div>
+          <div className="name tiny-label">Chance</div>
         </div>
       );
     } else if (space.type === "communityChest") {
       content = (
         <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name" style={{ fontSize: "1.05rem", color: "#2563eb" }}>✦</div>
-          <div className="name" style={{ fontSize: "0.55rem" }}>Community Chest</div>
+          <div className="name symbol" style={{ color: "#2563eb" }}>✦</div>
+          <div className="name tiny-label">Community Chest</div>
         </div>
       );
     } else if (space.type === "railroad") {
       content = (
         <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name" style={{ fontSize: "0.85rem" }}>🚂</div>
+          <div className="name symbol">🚂</div>
           <div className="name">{space.name}</div>
           <div className="price">${space.price}</div>
         </div>
@@ -113,7 +113,7 @@ export function Board({ players, lastRoll, onSpaceClick, selectedSpace, highligh
     } else if (space.type === "utility") {
       content = (
         <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name" style={{ fontSize: "0.85rem" }}>{space.index === 12 ? "⚡" : "💧"}</div>
+          <div className="name symbol">{space.index === 12 ? "⚡" : "💧"}</div>
           <div className="name">{space.name}</div>
           <div className="price">${space.price}</div>
         </div>

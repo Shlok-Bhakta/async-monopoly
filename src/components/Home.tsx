@@ -66,7 +66,7 @@ export function Home() {
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="section-title">Start a game</div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <button className="btn-primary" onClick={onCreate} disabled={busy}>
+          <button className="btn-primary w-full md:w-auto" onClick={onCreate} disabled={busy}>
             + New game
           </button>
           <form onSubmit={onJoin} className="join-row" style={{ flex: 1 }}>
