@@ -84,28 +84,28 @@ export function Board({ players, lastRoll, onSpaceClick, selectedSpace, highligh
     } else if (space.type === "tax") {
       content = (
         <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name" style={{ fontSize: "0.5rem" }}>{space.name}</div>
+          <div className="name" style={{ fontSize: "0.6rem" }}>{space.name}</div>
           <div className="price">${space.tax}</div>
         </div>
       );
     } else if (space.type === "chance") {
       content = (
         <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name" style={{ fontSize: "0.9rem", color: "#c0392b" }}>?</div>
-          <div className="name" style={{ fontSize: "0.45rem" }}>Chance</div>
+          <div className="name" style={{ fontSize: "1.05rem", color: "#c0392b" }}>?</div>
+          <div className="name" style={{ fontSize: "0.55rem" }}>Chance</div>
         </div>
       );
     } else if (space.type === "communityChest") {
       content = (
         <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name" style={{ fontSize: "0.9rem", color: "#2563eb" }}>✦</div>
-          <div className="name" style={{ fontSize: "0.45rem" }}>Community Chest</div>
+          <div className="name" style={{ fontSize: "1.05rem", color: "#2563eb" }}>✦</div>
+          <div className="name" style={{ fontSize: "0.55rem" }}>Community Chest</div>
         </div>
       );
     } else if (space.type === "railroad") {
       content = (
         <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name" style={{ fontSize: "0.75rem" }}>🚂</div>
+          <div className="name" style={{ fontSize: "0.85rem" }}>🚂</div>
           <div className="name">{space.name}</div>
           <div className="price">${space.price}</div>
         </div>
@@ -113,7 +113,7 @@ export function Board({ players, lastRoll, onSpaceClick, selectedSpace, highligh
     } else if (space.type === "utility") {
       content = (
         <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name" style={{ fontSize: "0.75rem" }}>{space.index === 12 ? "⚡" : "💧"}</div>
+          <div className="name" style={{ fontSize: "0.85rem" }}>{space.index === 12 ? "⚡" : "💧"}</div>
           <div className="name">{space.name}</div>
           <div className="price">${space.price}</div>
         </div>
@@ -167,23 +167,25 @@ export function Board({ players, lastRoll, onSpaceClick, selectedSpace, highligh
   }
 
   return (
-    <div className="board-shell">
-      {cells}
-      <div className="board-center">
-        <div className="center-logo">Crabopoly</div>
-        <div className="dice-row">
-          {lastRoll ? (
-            lastRoll.map((d, i) => (
-              <div key={i} className={`die ${lastRoll[0] === lastRoll[1] ? "doubles" : ""}`}>{d}</div>
-            ))
-          ) : (
-            <>
-              <div className="die" style={{ opacity: 0.4 }}>?</div>
-              <div className="die" style={{ opacity: 0.4 }}>?</div>
-            </>
-          )}
+    <div className="board-scroll">
+      <div className="board-shell">
+        {cells}
+        <div className="board-center">
+          <div className="center-logo">Crabopoly</div>
+          <div className="dice-row">
+            {lastRoll ? (
+              lastRoll.map((d, i) => (
+                <div key={i} className={`die ${lastRoll[0] === lastRoll[1] ? "doubles" : ""}`}>{d}</div>
+              ))
+            ) : (
+              <>
+                <div className="die" style={{ opacity: 0.4 }}>?</div>
+                <div className="die" style={{ opacity: 0.4 }}>?</div>
+              </>
+            )}
+          </div>
+          <div className="center-tagline">Async Monopoly for the group chat</div>
         </div>
-        <div className="center-tagline">Async Monopoly for the group chat</div>
       </div>
     </div>
   );
