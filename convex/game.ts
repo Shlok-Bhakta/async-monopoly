@@ -31,6 +31,13 @@ import {
   buildBiddingOrder,
   type AuctionState,
 } from "./monopoly/auction";
+import {
+  CASINO_STAKE,
+  canGamble,
+  resolveOverUnder,
+  rollReels,
+  spinSlots,
+} from "./monopoly/casino";
 
 const TOKENS = ["🟥 Battleship", "🐕 Dog", "🖐️ Hand", "👢 Boot", "🎩 Top Hat", "🐈 Cat", "🚗 Car", "🛒 Wheelbarrow"];
 const GAME_NAME_ANIMALS = ["Orca", "Kiwi", "Axolotl", "Capybara", "Mantis", "Dodo", "Narwhal", "Taco"];
@@ -287,9 +294,9 @@ async function resolveLanding(
     await log(ctx, game._id, player._id, "land", `${name} landed on GO.`);
     return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
   }
-  if (space.type === "freeParking") {
-    await log(ctx, game._id, player._id, "land", `${name} landed on Free Parking.`);
-    return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
+  if (space.type === "casino") {
+    await log(ctx, game._id, player._id, "land", `${name} landed on the Casino.`);
+    return { phase: "casino", phaseData: { space: spaceIndex }, endTurn: false, advance: false };
   }
   if (space.type === "jail") {
     await log(ctx, game._id, player._id, "land", `${name} is just visiting Jail.`);
@@ -739,6 +746,51 @@ async function settleAuctionIfDone(ctx: any, gameId: any, game: any, state: Auct
   }
   await ctx.db.patch(gameId, { phase: "manage", phaseData: {} });
 }
+
+export const casinoAction = mutation({
+  args: {
+    gameId: v.id("games"),
+    action: v.union(v.literal("slots"), v.literal("over"), v.literal("under"), v.literal("pass")),
+  },
+  handler: async (ctx, { gameId, action }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not signed in");
+    const { game, player, players } = await requirePlayer(ctx, gameId, userId);
+    if (game.status !== "playing") throw new Error("Game not in progress");
+    if (game.phase !== "casino") throw new Error("Not at the Casino right now");
+    const turnPlayer = players[game.turn];
+    if (turnPlayer._id !== player._id) throw new Error("Not your turn");
+    if (action === "pass") {
+      await ctx.db.patch(gameId, { phase: "manage", phaseData: {}, lastActionAt: now() });
+      await log(ctx, gameId, player._id, "casino", `${player.name} skipped the Casino.`);
+      return;
+    }
+    const guard = canGamble(player.money);
+    if (guard) throw new Error(guard);
+    const fresh = (await ctx.db.get(player._id))!;
+    await ctx.db.patch(player._id, { money: fresh.money - CASINO_STAKE });
+    if (action === "slots") {
+      const reels = rollReels();
+      const { outcome, payout } = spinSlots(reels);
+      const label = outcome === "jackpot" ? "JACKPOT 🎉" : outcome === "pair" ? "a pair" : "nothing";
+      if (payout > 0) {
+        const after = (await ctx.db.get(player._id))!;
+        await ctx.db.patch(player._id, { money: after.money + payout });
+      }
+      await log(ctx, gameId, player._id, "casino", `${player.name} spun 🎰 [${reels.join("] [")}] — ${label}${payout > 0 ? `, wins $${payout}!` : ". Tough luck."}`);
+    } else {
+      const [d1, d2] = rollDice();
+      const sum = d1 + d2;
+      const { payout } = resolveOverUnder(action, sum);
+      if (payout > 0) {
+        const after = (await ctx.db.get(player._id))!;
+        await ctx.db.patch(player._id, { money: after.money + payout });
+      }
+      await log(ctx, gameId, player._id, "casino", `${player.name} bet ${action === "over" ? "OVER" : "UNDER"} 7 — rolled ${d1}+${d2}=${sum}${payout > 0 ? `, wins $${payout}!` : ". House wins."}`);
+    }
+    await ctx.db.patch(gameId, { phase: "manage", phaseData: {}, lastActionAt: now() });
+  },
+});
 
 export const endTurn = mutation({
   args: { gameId: v.id("games") },

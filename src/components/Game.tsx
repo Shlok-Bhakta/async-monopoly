@@ -30,6 +30,7 @@ export function Game() {
   const unmortgage = useMutation(api.game.unmortgage);
   const auctionBid = useMutation(api.game.auctionBid);
   const auctionPass = useMutation(api.game.auctionPass);
+  const casinoAction = useMutation(api.game.casinoAction);
   const respondTrade = useMutation(api.game.respondTrade);
   const cancelTrade = useMutation(api.game.cancelTrade);
 
@@ -68,6 +69,8 @@ export function Game() {
         return { kind: "jail" as const };
       case "buy":
         return { kind: "buy" as const, space: p.space as number };
+      case "casino":
+        return { kind: "casino" as const };
       case "debt":
         return { kind: "debt" as const, amount: p.amount as number, reason: p.reason as string };
       case "manage":
@@ -148,6 +151,7 @@ export function Game() {
             onBankrupt={() => run(() => declareBankruptcy({ gameId: data.game._id }))}
             onBid={(amount: number) => run(() => auctionBid({ gameId: data.game._id, amount }))}
             onPass={() => run(() => auctionPass({ gameId: data.game._id }))}
+            onCasino={(action: string) => run(() => casinoAction({ gameId: data.game._id, action: action as any }))}
             onOpenTrade={() => setTradeOpen(true)}
           />
 
@@ -275,6 +279,21 @@ function ActionBar(props: any) {
           onBid={props.onBid}
           onPass={props.onPass}
         />
+      );
+    }
+    case "casino": {
+      const broke = (me?.money ?? 0) < 50;
+      return (
+        <div className="action-bar">
+          <div className="action-status">🎰 Welcome to the Casino — $50 a spin, bank pays the odds</div>
+          <div className="action-buttons">
+            <button className="btn-gold" disabled={broke} onClick={() => props.onCasino("slots")}>🎰 Slots ($50)</button>
+            <button className="btn-primary" disabled={broke} onClick={() => props.onCasino("over")}>⬆️ Over 7 ($50)</button>
+            <button className="btn-primary" disabled={broke} onClick={() => props.onCasino("under")}>⬇️ Under 7 ($50)</button>
+            <button className="btn-ghost" onClick={() => props.onCasino("pass")}>Pass</button>
+          </div>
+          {broke && <div className="muted tiny">You can't afford the $50 minimum — pass or sell something.</div>}
+        </div>
       );
     }
     case "debt":

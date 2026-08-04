@@ -65,12 +65,12 @@ export function Board({ players, lastRoll, onSpaceClick, selectedSpace, highligh
           <div className="tiny">Just visiting</div>
         </div>
       );
-    } else if (space.type === "freeParking") {
+    } else if (space.type === "casino") {
       content = (
         <div className="corner" style={{ gridRow: row + 1, gridColumn: col + 1 }}>
-          <div className="corner-icon">🅿️</div>
-          <div>FREE</div>
-          <div>PARKING</div>
+          <div className="corner-icon">🎰</div>
+          <div>CASINO</div>
+          <div className="tiny">Feeling lucky?</div>
         </div>
       );
     } else if (space.type === "goToJail") {
