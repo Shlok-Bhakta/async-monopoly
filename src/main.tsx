@@ -6,11 +6,16 @@ import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import "./index.css";
 import App from "./App.tsx";
 
-const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string, {
-  // Persist auth token across reloads (default localStorage) so nobody has to
-  // log in again every time they open the tab.
-  // (ConvexAuthProvider handles token storage itself.)
-});
+const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
+
+// Register the service worker in production only (keeps dev HMR clean).
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("/sw.js")
+      .catch((err) => console.error("Service worker registration failed:", err));
+  });
+}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

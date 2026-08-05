@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "../../convex/_generated/api";
+import { Notifications } from "./Notifications";
 
 export function Home() {
   const navigate = useNavigate();
@@ -84,6 +85,8 @@ export function Home() {
         </div>
         {error && <div className="auth-error" style={{ marginTop: 10 }}>{error}</div>}
       </div>
+
+      <Notifications />
 
       <div className="card">
         <div className="section-title">Your games</div>

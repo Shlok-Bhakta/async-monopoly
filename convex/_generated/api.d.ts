@@ -16,6 +16,8 @@ import type * as monopoly_board from "../monopoly/board.js";
 import type * as monopoly_cards from "../monopoly/cards.js";
 import type * as monopoly_casino from "../monopoly/casino.js";
 import type * as monopoly_engine from "../monopoly/engine.js";
+import type * as notify from "../notify.js";
+import type * as notifyDb from "../notifyDb.js";
 
 import type {
   ApiFromModules,
@@ -32,6 +34,8 @@ declare const fullApi: ApiFromModules<{
   "monopoly/cards": typeof monopoly_cards;
   "monopoly/casino": typeof monopoly_casino;
   "monopoly/engine": typeof monopoly_engine;
+  notify: typeof notify;
+  notifyDb: typeof notifyDb;
 }>;
 
 /**

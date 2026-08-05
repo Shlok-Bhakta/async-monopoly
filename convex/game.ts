@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -71,6 +72,17 @@ async function requirePlayer(
   const player = players.find((p: Doc<"players">) => p.userId === userId);
   if (!player) throw new Error("You are not in this game");
   return { game, player, players };
+}
+
+// Fire a push notification to whoever's turn it is now. Never throws — push
+// failures must not break the actual game move. Scheduled after commit so the
+// action sees the new turn state.
+async function maybeNotifyTurn(ctx: any, gameId: any) {
+  try {
+    await ctx.scheduler.runAfter(0, internal.notify.notifyCurrentTurn, { gameId });
+  } catch (err) {
+    console.error("notifyCurrentTurn call failed:", err);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +281,11 @@ export const startGame = mutation({
       lastActionAt: now(),
     });
     await log(ctx, gameId, null, "start", "Game started! Seat 0 goes first.");
+    try {
+      await ctx.scheduler.runAfter(0, internal.notify.notifyGameStarted, { gameId });
+    } catch (err) {
+      console.error("notifyGameStarted call failed:", err);
+    }
   },
 });
 
@@ -513,6 +530,7 @@ export const roll = mutation({
       const next = nextAliveSeat(players, game.turn);
       const nextPhase = players[next].inJail ? "jail" : "roll";
       await ctx.db.patch(gameId, { turn: next, phase: nextPhase, phaseData: {} });
+    await maybeNotifyTurn(ctx, gameId);
       return;
     }
 
@@ -544,6 +562,7 @@ export const roll = mutation({
       const next = nextAliveSeat(players, game.turn);
       const nextPhase = players[next].inJail ? "jail" : "roll";
       await ctx.db.patch(gameId, { turn: next, phase: nextPhase, phaseData: {}, doublesCount: 0 });
+    await maybeNotifyTurn(ctx, gameId);
       await log(ctx, gameId, null, "turn", `It's ${players[next].name}'s turn.`);
       return;
     }
@@ -629,6 +648,7 @@ export const jailAction = mutation({
     const next = nextAliveSeat(players, game.turn);
     const nextPhase = players[next].inJail ? "jail" : "roll";
     await ctx.db.patch(gameId, { turn: next, phase: nextPhase, phaseData: {}, doublesCount: 0 });
+    await maybeNotifyTurn(ctx, gameId);
     await log(ctx, gameId, null, "turn", `It's ${players[next].name}'s turn.`);
   },
 });
@@ -805,6 +825,7 @@ export const endTurn = mutation({
     const next = nextAliveSeat(players, game.turn);
     const nextPhase = players[next].inJail ? "jail" : "roll";
     await ctx.db.patch(gameId, { turn: next, phase: nextPhase, phaseData: {}, doublesCount: 0, lastActionAt: now() });
+    await maybeNotifyTurn(ctx, gameId);
     await log(ctx, gameId, null, "turn", `${player.name} ended their turn. It's ${players[next].name}'s turn.`);
   },
 });
@@ -842,6 +863,7 @@ export const settleDebt = mutation({
       const next = nextAliveSeat(players, game.turn);
       const nextPhase2 = players[next].inJail ? "jail" : "roll";
       await ctx.db.patch(gameId, { turn: next, phase: nextPhase2, phaseData: {}, doublesCount: 0 });
+    await maybeNotifyTurn(ctx, gameId);
       await log(ctx, gameId, null, "turn", `It's ${players[next].name}'s turn.`);
     } else {
       await ctx.db.patch(gameId, { phase: "manage", phaseData: {} });
@@ -905,6 +927,7 @@ export const declareBankruptcy = mutation({
     const next = nextAliveSeat(players, game.turn);
     const nextPhase = players[next].inJail ? "jail" : "roll";
     await ctx.db.patch(gameId, { turn: next, phase: nextPhase, phaseData: {}, doublesCount: 0, lastActionAt: now() });
+    await maybeNotifyTurn(ctx, gameId);
     await log(ctx, gameId, null, "turn", `It's ${players[next].name}'s turn.`);
   },
 });
@@ -1051,6 +1074,15 @@ export const sendTrade = mutation({
       createdAt: now(),
     });
     await log(ctx, gameId, player._id, "trade", `${player.name} sent a trade offer to ${target.name}.`);
+    try {
+      await ctx.scheduler.runAfter(0, internal.notify.notifyTrade, {
+        gameId,
+        toPlayerId: target._id,
+        fromName: player.name,
+      });
+    } catch (err) {
+      console.error("notifyTrade call failed:", err);
+    }
   },
 });
 
