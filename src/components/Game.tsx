@@ -5,6 +5,7 @@ import { api } from "../../convex/_generated/api";
 import { getSpace } from "../../convex/monopoly/board";
 import { fmtMoney, GROUP_COLORS } from "../lib/game";
 import { Board } from "./Board";
+import { PropertiesPanel } from "./PropertiesPanel";
 
 export function Game() {
   const { gameId } = useParams();
@@ -173,6 +174,10 @@ export function Game() {
                 💱 Trade
               </button>
             </div>
+          </div>
+
+          <div style={{ width: "100%", maxWidth: 1100 }}>
+            <PropertiesPanel me={me} onSelect={(i) => setSelected(i)} />
           </div>
         </>
       )}
