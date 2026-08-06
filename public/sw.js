@@ -1,5 +1,10 @@
-/* Crabopoly service worker — offline shell + push notifications */
-const CACHE = "crabopoly-v1";
+/* Crabopoly service worker — offline shell + push notifications.
+   iOS (16.4+) terminates push subscriptions after ~3 "silent pushes", i.e.
+   push events that finish without the notification being shown. The push
+   handler MUST keep the event alive with event.waitUntil() until
+   showNotification() resolves — see
+   https://dev.to/progressier/how-to-fix-ios-push-subscriptions-being-terminated-after-3-notifications-39a7 */
+const CACHE = "crabopoly-v2";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -37,25 +42,34 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
+// EVERYTHING runs inside waitUntil, and showNotification is awaited before the
+// event settles. A push event that resolves without showing a notification
+// counts as a "silent push" on iOS and gets the subscription killed.
 self.addEventListener("push", (event) => {
-  let data = { title: "Crabopoly", body: "", url: "/", tag: "crabopoly" };
-  if (event.data) {
-    try {
-      data = { ...data, ...event.data.json() };
-    } catch (e) {
-      data.body = event.data.text();
-    }
-  }
   event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: "/icons/icon-192.png",
-      badge: "/icons/icon-192.png",
-      tag: data.tag,
-      renotify: true,
-      data: { url: data.url },
-      vibrate: [100, 50, 100],
-    })
+    (async () => {
+      try {
+        let data = { title: "Crabopoly", body: "", url: "/", tag: "crabopoly" };
+        if (event.data) {
+          try {
+            data = { ...data, ...event.data.json() };
+          } catch (e) {
+            data.body = event.data.text();
+          }
+        }
+        await self.registration.showNotification(data.title, {
+          body: data.body,
+          icon: "/icons/icon-192.png",
+          badge: "/icons/icon-192.png",
+          tag: data.tag,
+          data: { url: data.url },
+        });
+      } catch (err) {
+        // Never reject the event: a rejected waitUntil can also look like a
+        // failed/silent push to the browser.
+        console.error("push handler failed:", err);
+      }
+    })()
   );
 });
 

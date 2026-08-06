@@ -78,27 +78,38 @@ export function Notifications() {
     setSubscribed(true);
   }
 
-  // Notifications are ON BY DEFAULT: on the first visit of a session, request
-  // permission and subscribe automatically so nobody has to hunt for the
-  // toggle. Denied/unsupported still falls back to the manual card below.
+  // Notifications are ON BY DEFAULT, but iOS/Chrome only allow permission
+  // requests inside a real user gesture. So instead of asking on page load
+  // (which silently fails and can poison the permission state), we subscribe
+  // on the user's first tap/keystroke anywhere in the app. Denied/unsupported
+  // still falls back to the manual card below.
   useEffect(() => {
     if (subscribed || busy || !vapidKey) return;
     if (!pushSupported) return;
     if (Notification.permission === "denied") return;
     if (isIOS && !isStandalone) return; // needs Home Screen install first
     if (sessionStorage.getItem("crabopoly_auto_notif")) return;
-    sessionStorage.setItem("crabopoly_auto_notif", "1");
-    (async () => {
-      setBusy(true);
-      try {
-        await doSubscribe();
-        setOk("🔔 Notifications are on by default — you'll get pinged when it's your turn.");
-      } catch {
-        /* silent: the manual card shows the state (denied / not supported) */
-      } finally {
-        setBusy(false);
-      }
-    })();
+
+    const onGesture = () => {
+      sessionStorage.setItem("crabopoly_auto_notif", "1"); // attempt once per session
+      (async () => {
+        setBusy(true);
+        try {
+          await doSubscribe();
+          setOk("🔔 Notifications are on by default — you'll get pinged when it's your turn.");
+        } catch {
+          /* silent: the manual card shows the state (denied / not supported) */
+        } finally {
+          setBusy(false);
+        }
+      })();
+    };
+    window.addEventListener("pointerdown", onGesture, { once: true });
+    window.addEventListener("keydown", onGesture, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", onGesture);
+      window.removeEventListener("keydown", onGesture);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vapidKey, subscribed]);
 
