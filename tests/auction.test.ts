@@ -7,7 +7,6 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  advanceExpired,
   bid,
   buildBiddingOrder,
   createAuction,
@@ -226,30 +225,5 @@ describe("dropUnaffordable", () => {
     const money = { [A]: 100, [B]: 500 }; // A bid exactly what they had
     const next = dropUnaffordable(s, money);
     expect(next.order).toEqual([A, B]);
-  });
-});
-
-describe("advanceExpired", () => {
-  const T0 = 1_700_000_000_000;
-  // The bidder's window runs from their turn start + 2h, so "past" must be
-  // after that deadline (not before the bid was made).
-  const past = T0 + 2 * 60 * 60 * 1000 + 1000;
-  const future = T0 + 2 * 60 * 60 * 1000 - 1000;
-
-  it("auto-passes the current bidder after the deadline and refreshes the clock", () => {
-    let s = createAuction([A, B, C], 0, T0);
-    s = bid(s, A, 100, 500, T0); // B's turn
-    expect(currentBidderId(s)).toBe(B);
-    const advanced = advanceExpired(s, past);
-    expect(advanced.order).toEqual([A, C]);
-    expect(currentBidderId(advanced)).toBe(C);
-    expect(advanced.expiresAt).toBe(past + 2 * 60 * 60 * 1000);
-  });
-
-  it("no-ops before the deadline", () => {
-    let s = createAuction([A, B], 0, T0);
-    s = bid(s, A, 100, 500, T0);
-    const advanced = advanceExpired(s, future);
-    expect(advanced).toBe(s);
   });
 });

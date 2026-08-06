@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { getSpace } from "./monopoly/board";
 
 function now(): number {
@@ -115,6 +116,43 @@ export const sendTestPush = mutation({
   },
 });
 
+// Who has to act in the active auction for a game (for push notifications).
+export const getAuctionTarget = internalQuery({
+  args: { gameId: v.id("games") },
+  handler: async (ctx, { gameId }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game || game.phase !== "auction") return null;
+    const auction = (await ctx.db.get(game.phaseData.auctionId as Id<"auctions">))!;
+    if (!auction || auction.status !== "active") return null;
+    const bidderId = auction.order[auction.nextIndex];
+    if (!bidderId) return null;
+    const bidder = await ctx.db.get(bidderId);
+    if (!bidder || bidder.bankrupt) return null;
+    return { userId: bidder.userId, gameName: game.name };
+  },
+});
+
+// Every active game + the user whose turn it is (for the 10h reminder nudge).
+export const getActiveGameTurnTargets = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const games = await ctx.db.query("games").collect();
+    const out: { gameId: Id<"games">; gameName: string; userId: Id<"users"> }[] = [];
+    for (const g of games) {
+      if (g.status !== "playing") continue;
+      const players = await ctx.db
+        .query("players")
+        .withIndex("by_game", (q) => q.eq("gameId", g._id))
+        .collect();
+      const sorted = [...players].sort((a, b) => a.seatIndex - b.seatIndex);
+      const current = sorted[g.turn];
+      if (!current || current.bankrupt) continue;
+      out.push({ gameId: g._id, gameName: g.name, userId: current.userId });
+    }
+    return out;
+  },
+});
+
 // Public, unauthenticated feed of active games — used by the Discord bridge
 // bot (CrabCake) to post turn notifications into the group chat. Exposes only
 // names + turn state, no auth or private data.
@@ -149,7 +187,6 @@ export const getDiscordFeed = query({
           spaceName: getSpace(auction.spaceIndex).name,
           currentBid: auction.currentBid,
           bidderToAct: bidder?.name ?? null,
-          bidDeadline: auction.expiresAt ?? null,
         };
       }
       out.push({

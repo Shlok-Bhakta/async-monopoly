@@ -3,7 +3,9 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-// Auto-pass auction bidders who miss their 2h window so auctions can't stall.
-crons.interval("auction-timeout", { seconds: 60 }, internal.game.advanceStaleAuctions);
+// Async-game nudge: every 10 hours, ping whoever's turn it is in each active
+// game so nobody forgets to play. No timers on turns themselves — this is a
+// gentle reminder, not a deadline.
+crons.interval("turn-nudge", { hours: 10 }, internal.notify.nudgeCurrentTurns);
 
 export default crons;

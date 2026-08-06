@@ -49,6 +49,27 @@ export const sendManualPush = internalAction({
   },
 });
 
+export const notifyAuctionBidder = internalAction({
+  args: { gameId: v.id("games"), message: v.string() },
+  handler: async (ctx, { gameId, message }) => {
+    const target = await ctx.runQuery(internal.notifyDb.getAuctionTarget, { gameId });
+    if (!target?.userId) return;
+    await sendToUser(ctx, target.userId, "🔨 Auction", message, `/game/${gameId}`);
+  },
+});
+
+// Reminder nudge for the 10h cron: pings the current turn holder of every
+// active game so nobody forgets it's their move.
+export const nudgeCurrentTurns = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const targets = await ctx.runQuery(internal.notifyDb.getActiveGameTurnTargets, {});
+    for (const t of targets) {
+      await sendToUser(ctx, t.userId, "⏰ It's your turn", `Still your turn in ${t.gameName} — roll when you get a sec.`, `/game/${t.gameId}`);
+    }
+  },
+});
+
 export const notifyCurrentTurn = internalAction({
   args: { gameId: v.id("games") },
   handler: async (ctx, { gameId }) => {

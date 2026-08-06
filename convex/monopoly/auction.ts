@@ -4,16 +4,13 @@
 // This module is deliberately dependency-free (no Convex imports) so it can
 // be unit tested with plain vitest — see tests/auction.test.ts.
 //
-// Speed design (async games):
-//  - MIN_BID_INCREMENT stops the $1 staircase that drags auctions on forever.
+// Speed design (async games, no timers — people have jobs):
+//  - MIN_BID_INCREMENT_PERCENT stops the $1 staircase that drags auctions on
+//    forever: each raise must clear 5% of the current bid.
 //  - dropUnaffordable() removes players who can't cover the next minimum bid,
 //    so broke players never block the bidding order.
-//  - AUCTION_TURN_TIMEOUT_MS gives each bidder a deadline; advanceExpired()
-//    auto-passes the current bidder when it lapses so an AFK player can't
-//    stall an auction indefinitely.
 
 export const MIN_BID_INCREMENT_PERCENT = 0.05;
-export const AUCTION_TURN_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours per bidder turn
 
 export interface AuctionState<T extends string = string> {
   spaceIndex: number;
@@ -25,8 +22,6 @@ export interface AuctionState<T extends string = string> {
   /** Index into `order` whose turn it is to act. */
   nextIndex: number;
   status: "active" | "done";
-  /** Epoch ms when the current bidder's turn expires (auto-pass). */
-  expiresAt: number;
 }
 
 export interface AuctionResult<T extends string = string> {
@@ -36,11 +31,7 @@ export interface AuctionResult<T extends string = string> {
 }
 
 /** Start an auction with the given bidding order (first id bids first). */
-export function createAuction<T extends string = string>(
-  order: T[],
-  spaceIndex = 0,
-  now = Date.now(),
-): AuctionState<T> {
+export function createAuction<T extends string = string>(order: T[], spaceIndex = 0): AuctionState<T> {
   return {
     spaceIndex,
     currentBid: 0,
@@ -48,7 +39,6 @@ export function createAuction<T extends string = string>(
     order,
     nextIndex: 0,
     status: "active",
-    expiresAt: now + AUCTION_TURN_TIMEOUT_MS,
   };
 }
 
@@ -71,7 +61,6 @@ export function bid<T extends string = string>(
   playerId: T,
   amount: number,
   money: number,
-  now = Date.now(),
 ): AuctionState<T> {
   if (state.status !== "active") throw new Error("Auction is over");
   if (currentBidderId(state) !== playerId) throw new Error("Not your bid");
@@ -79,22 +68,18 @@ export function bid<T extends string = string>(
   if (amount < min) throw new Error(`Bid must be at least $${min}`);
   if (amount > money) throw new Error("You cannot afford that bid");
   const nextIndex = state.order.length === 0 ? 0 : (state.nextIndex + 1) % state.order.length;
-  return { ...state, currentBid: amount, currentBidder: playerId, nextIndex, expiresAt: now + AUCTION_TURN_TIMEOUT_MS };
+  return { ...state, currentBid: amount, currentBidder: playerId, nextIndex };
 }
 
 /** Current bidder drops out. Throws on invalid moves. */
-export function pass<T extends string = string>(
-  state: AuctionState<T>,
-  playerId: T,
-  now = Date.now(),
-): AuctionState<T> {
+export function pass<T extends string = string>(state: AuctionState<T>, playerId: T): AuctionState<T> {
   if (state.status !== "active") throw new Error("Auction is over");
   if (currentBidderId(state) !== playerId) throw new Error("Not your turn to bid");
   const remaining = state.order.filter((id) => id !== playerId);
   // The array shrank: keep the same index (it now points at the next player),
   // wrapping to 0 if we removed the tail or the list is empty.
   const nextIndex = remaining.length === 0 ? 0 : state.nextIndex >= remaining.length ? 0 : state.nextIndex;
-  return { ...state, order: remaining, nextIndex, expiresAt: now + AUCTION_TURN_TIMEOUT_MS };
+  return { ...state, order: remaining, nextIndex };
 }
 
 /**
@@ -116,21 +101,6 @@ export function dropUnaffordable<T extends string = string>(
   );
   const nextIndex = remaining.length === 0 ? 0 : state.nextIndex >= remaining.length ? 0 : state.nextIndex;
   return { ...state, order: remaining, nextIndex };
-}
-
-/**
- * If the current bidder's deadline has passed, auto-pass them (and refresh the
- * clock for whoever is next). Returns the same state when nothing is expired.
- */
-export function advanceExpired<T extends string = string>(
-  state: AuctionState<T>,
-  now = Date.now(),
-): AuctionState<T> {
-  if (state.status !== "active" || state.order.length === 0) return state;
-  if (now < state.expiresAt) return state;
-  const current = currentBidderId(state);
-  if (!current) return state;
-  return pass(state, current, now);
 }
 
 /**

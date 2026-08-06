@@ -345,7 +345,7 @@ function AuctionBar({ auction, players, isMyBid, currentBid, onBid, onPass }: an
           <button className="btn-ghost" onClick={onPass}>Pass</button>
         </div>
       ) : (
-        <div className="waiting-note">Waiting for the next bidder… (auto-passes after 2h)</div>
+        <div className="waiting-note">Waiting for the next bidder…</div>
       )}
       {isMyBid && <div className="action-hint">Minimum bid: {fmtMoney(minNext)} (+5% raise). Pass and you're out.</div>}
     </div>
