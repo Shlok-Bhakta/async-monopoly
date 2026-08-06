@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { getSpace } from "./monopoly/board";
 
 function now(): number {
   return Date.now();
@@ -116,11 +117,29 @@ export const getDiscordFeed = query({
         .withIndex("by_game", (q) => q.eq("gameId", g._id))
         .order("desc")
         .take(1);
+      const auctions = await ctx.db
+        .query("auctions")
+        .withIndex("by_game", (q) => q.eq("gameId", g._id))
+        .collect();
+      const auction = auctions.find((a) => a.status === "active") ?? null;
+      let auctionInfo = null;
+      if (auction) {
+        const bidder = sorted.find((p) => p._id === auction.order[auction.nextIndex]) ?? null;
+        auctionInfo = {
+          auctionId: auction._id,
+          spaceIndex: auction.spaceIndex,
+          spaceName: getSpace(auction.spaceIndex).name,
+          currentBid: auction.currentBid,
+          bidderToAct: bidder?.name ?? null,
+        };
+      }
       out.push({
         gameId: g._id,
         name: g.name,
         code: g.code,
+        phase: g.phase,
         turnPlayer: current?.name ?? null,
+        auction: auctionInfo,
         lastEvent: events[0]?.message ?? null,
         lastEventAt: events[0]?.createdAt ?? 0,
         updatedAt: g.lastActionAt ?? 0,

@@ -57,29 +57,57 @@ export function Notifications() {
     };
   }, []);
 
+  async function doSubscribe() {
+    if (!pushSupported) throw new Error("Push isn't supported in this browser.");
+    if (!vapidKey) throw new Error("Push isn't configured on the server yet.");
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) throw new Error("Service worker isn't active here — notifications work on the deployed site.");
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") throw new Error("Notification permission was denied.");
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidKey) as unknown as BufferSource,
+    });
+    await subscribePush({
+      subscription: {
+        endpoint: sub.endpoint,
+        p256dh: toBase64(sub.getKey("p256dh")!),
+        auth: toBase64(sub.getKey("auth")!),
+      },
+    });
+    setSubscribed(true);
+  }
+
+  // Notifications are ON BY DEFAULT: on the first visit of a session, request
+  // permission and subscribe automatically so nobody has to hunt for the
+  // toggle. Denied/unsupported still falls back to the manual card below.
+  useEffect(() => {
+    if (subscribed || busy || !vapidKey) return;
+    if (!pushSupported) return;
+    if (Notification.permission === "denied") return;
+    if (isIOS && !isStandalone) return; // needs Home Screen install first
+    if (sessionStorage.getItem("crabopoly_auto_notif")) return;
+    sessionStorage.setItem("crabopoly_auto_notif", "1");
+    (async () => {
+      setBusy(true);
+      try {
+        await doSubscribe();
+        setOk("🔔 Notifications are on by default — you'll get pinged when it's your turn.");
+      } catch {
+        /* silent: the manual card shows the state (denied / not supported) */
+      } finally {
+        setBusy(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vapidKey, subscribed]);
+
   async function enable() {
     setError(null);
     setOk(null);
     setBusy(true);
     try {
-      if (!pushSupported) throw new Error("Push isn't supported in this browser.");
-      if (!vapidKey) throw new Error("Push isn't configured on the server yet.");
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (!reg) throw new Error("Service worker isn't active here — notifications work on the deployed site.");
-      const perm = await Notification.requestPermission();
-      if (perm !== "granted") throw new Error("Notification permission was denied.");
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidKey) as unknown as BufferSource,
-      });
-      await subscribePush({
-        subscription: {
-          endpoint: sub.endpoint,
-          p256dh: toBase64(sub.getKey("p256dh")!),
-          auth: toBase64(sub.getKey("auth")!),
-        },
-      });
-      setSubscribed(true);
+      await doSubscribe();
       setOk("🔔 On. You'll get pinged when it's your turn.");
     } catch (e: any) {
       setError(e.message ?? "Something went wrong.");
