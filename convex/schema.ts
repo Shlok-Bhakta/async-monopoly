@@ -91,6 +91,10 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("done")),
     winner: v.optional(v.id("players")),
     winningBid: v.optional(v.number()),
+    /** Epoch ms when the current bidder's turn expires (auto-pass). Optional
+     * for auctions created before the timer existed — they get one on their
+     * next bid/pass. */
+    expiresAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_game", ["gameId"]),

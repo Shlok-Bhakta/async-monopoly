@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -29,7 +29,12 @@ import {
   bid as auctionBidAction,
   pass as auctionPassAction,
   maybeFinish as auctionMaybeFinish,
+  createAuction,
+  currentBidderId,
+  dropUnaffordable,
+  advanceExpired,
   buildBiddingOrder,
+  AUCTION_TURN_TIMEOUT_MS,
   type AuctionState,
 } from "./monopoly/auction";
 import {
@@ -72,6 +77,10 @@ async function requirePlayer(
   const player = players.find((p: Doc<"players">) => p.userId === userId);
   if (!player) throw new Error("You are not in this game");
   return { game, player, players };
+}
+
+function moneyById(players: Doc<"players">[]): Record<string, number> {
+  return Object.fromEntries(players.map((p) => [p._id, p.money]));
 }
 
 // Fire a push notification to whoever's turn it is now. Never throws — push
@@ -683,14 +692,18 @@ export const declineBuy = mutation({
     // Start bidding with the player after the current turn player; the
     // declining player bids last.
     const bidding = buildBiddingOrder(order, game.turn);
+    // Drop anyone who can't afford to bid at all up front.
+    const moneyById = Object.fromEntries(order.map((p: any) => [p._id, p.money]));
+    const startState = dropUnaffordable(createAuction(bidding, spaceIndex, now()), moneyById);
     const auctionId = await ctx.db.insert("auctions", {
       gameId,
       spaceIndex,
       currentBid: 0,
       currentBidder: undefined,
-      order: bidding,
-      nextIndex: 0,
+      order: startState.order,
+      nextIndex: startState.nextIndex,
       status: "active",
+      expiresAt: startState.expiresAt,
       createdAt: now(),
     });
     await ctx.db.patch(gameId, { phase: "auction", phaseData: { auctionId, space: spaceIndex } });
@@ -703,20 +716,34 @@ export const auctionBid = mutation({
   handler: async (ctx, { gameId, amount }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not signed in");
-    const { game, player } = await requirePlayer(ctx, gameId, userId);
+    const { game, player, players } = await requirePlayer(ctx, gameId, userId);
     if (game.phase !== "auction") throw new Error("No auction right now");
     const auction = (await ctx.db.get(game.phaseData.auctionId as Id<"auctions">))!;
     if (!auction || auction.status !== "active") throw new Error("Auction is over");
-    const state: AuctionState<Id<"players">> = {
+    let state: AuctionState<Id<"players">> = {
       spaceIndex: auction.spaceIndex,
       currentBid: auction.currentBid,
       currentBidder: auction.currentBidder,
       order: auction.order,
       nextIndex: auction.nextIndex,
       status: auction.status,
+      expiresAt: auction.expiresAt ?? now() + AUCTION_TURN_TIMEOUT_MS,
     };
-    const next = auctionBidAction(state, player._id, amount, player.money);
-    await ctx.db.patch(auction._id, { currentBid: next.currentBid, currentBidder: next.currentBidder, nextIndex: next.nextIndex });
+    // Lazy timeout: if the current bidder's window lapsed, auto-pass first so
+    // an active player never has to wait behind an AFK one.
+    const advanced = advanceExpired(state, now());
+    if (advanced !== state) {
+      await ctx.db.patch(auction._id, { order: advanced.order, nextIndex: advanced.nextIndex, expiresAt: advanced.expiresAt });
+      state = advanced;
+    }
+    const next = dropUnaffordable(auctionBidAction(state, player._id, amount, player.money, now()), moneyById(players));
+    await ctx.db.patch(auction._id, {
+      currentBid: next.currentBid,
+      currentBidder: next.currentBidder,
+      nextIndex: next.nextIndex,
+      order: next.order,
+      expiresAt: next.expiresAt,
+    });
     await log(ctx, gameId, player._id, "auction", `${player.name} bids $${amount}.`);
     await ctx.db.patch(gameId, { lastActionAt: now() });
     await settleAuctionIfDone(ctx, gameId, game, next);
@@ -728,20 +755,26 @@ export const auctionPass = mutation({
   handler: async (ctx, { gameId }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not signed in");
-    const { game, player } = await requirePlayer(ctx, gameId, userId);
+    const { game, player, players } = await requirePlayer(ctx, gameId, userId);
     if (game.phase !== "auction") throw new Error("No auction right now");
     const auction = (await ctx.db.get(game.phaseData.auctionId as Id<"auctions">))!;
     if (!auction || auction.status !== "active") throw new Error("Auction is over");
-    const state: AuctionState<Id<"players">> = {
+    let state: AuctionState<Id<"players">> = {
       spaceIndex: auction.spaceIndex,
       currentBid: auction.currentBid,
       currentBidder: auction.currentBidder,
       order: auction.order,
       nextIndex: auction.nextIndex,
       status: auction.status,
+      expiresAt: auction.expiresAt ?? now() + AUCTION_TURN_TIMEOUT_MS,
     };
-    const next = auctionPassAction(state, player._id);
-    await ctx.db.patch(auction._id, { order: next.order, nextIndex: next.nextIndex });
+    const advanced = advanceExpired(state, now());
+    if (advanced !== state) {
+      await ctx.db.patch(auction._id, { order: advanced.order, nextIndex: advanced.nextIndex, expiresAt: advanced.expiresAt });
+      state = advanced;
+    }
+    const next = dropUnaffordable(auctionPassAction(state, player._id, now()), moneyById(players));
+    await ctx.db.patch(auction._id, { order: next.order, nextIndex: next.nextIndex, expiresAt: next.expiresAt });
     await log(ctx, gameId, player._id, "auction", `${player.name} passes on the auction.`);
     await ctx.db.patch(gameId, { lastActionAt: now() });
     await settleAuctionIfDone(ctx, gameId, game, next);
@@ -766,6 +799,48 @@ async function settleAuctionIfDone(ctx: any, gameId: any, game: any, state: Auct
   }
   await ctx.db.patch(gameId, { phase: "manage", phaseData: {} });
 }
+
+// Runs on a cron (every 60s): auto-passes any auction bidder whose 2h window
+// lapsed, so an AFK player can never stall an auction. Safe to run always —
+// it no-ops when nothing is expired.
+export const advanceStaleAuctions = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const nowMs = Date.now();
+    const auctions = await ctx.db.query("auctions").collect();
+    for (const auction of auctions) {
+      if (auction.status !== "active" || !auction.expiresAt) continue;
+      if (nowMs < auction.expiresAt) continue;
+      const game = await ctx.db.get(auction.gameId);
+      if (!game || game.phase !== "auction") continue;
+      const state: AuctionState<Id<"players">> = {
+        spaceIndex: auction.spaceIndex,
+        currentBid: auction.currentBid,
+        currentBidder: auction.currentBidder,
+        order: auction.order,
+        nextIndex: auction.nextIndex,
+        status: auction.status,
+        expiresAt: auction.expiresAt,
+      };
+      const expiredBidder = currentBidderId(state);
+      const advanced = advanceExpired(state, nowMs);
+      if (advanced === state) continue; // nothing actually lapsed
+      const players = await ctx.db
+        .query("players")
+        .withIndex("by_game", (q) => q.eq("gameId", auction.gameId))
+        .collect();
+      const final = dropUnaffordable(advanced, moneyById(players));
+      await ctx.db.patch(auction._id, {
+        order: final.order,
+        nextIndex: final.nextIndex,
+        expiresAt: final.expiresAt,
+      });
+      const name = players.find((p) => p._id === expiredBidder)?.name ?? "A player";
+      await log(ctx, auction.gameId, null, "auction", `${name} took too long — auto-passed.`);
+      await settleAuctionIfDone(ctx, auction.gameId, game, final);
+    }
+  },
+});
 
 export const casinoAction = mutation({
   args: {

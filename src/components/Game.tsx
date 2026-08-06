@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { getSpace } from "../../convex/monopoly/board";
+import { MIN_BID_INCREMENT_PERCENT } from "../../convex/monopoly/auction";
 import { fmtMoney, GROUP_COLORS } from "../lib/game";
 import { Board } from "./Board";
 import { PropertiesPanel } from "./PropertiesPanel";
@@ -328,7 +329,8 @@ function ActionBar(props: any) {
 }
 
 function AuctionBar({ auction, players, isMyBid, currentBid, onBid, onPass }: any) {
-  const [amount, setAmount] = useState(Math.max(currentBid + 1, 10));
+  const minNext = currentBid === 0 ? 1 : Math.ceil(currentBid * (1 + MIN_BID_INCREMENT_PERCENT));
+  const [amount, setAmount] = useState(minNext);
   const bidder = players.find((p: any) => p._id === auction.currentBidder);
   return (
     <div className="action-bar">
@@ -338,13 +340,14 @@ function AuctionBar({ auction, players, isMyBid, currentBid, onBid, onPass }: an
       </div>
       {isMyBid ? (
         <div className="action-buttons">
-          <input type="number" min={currentBid + 1} value={amount} onChange={(e) => setAmount(Number(e.target.value))} style={{ width: 100 }} />
+          <input type="number" min={minNext} value={amount} onChange={(e) => setAmount(Number(e.target.value))} style={{ width: 110 }} />
           <button className="btn-gold" onClick={() => onBid(amount)}>Bid</button>
           <button className="btn-ghost" onClick={onPass}>Pass</button>
         </div>
       ) : (
-        <div className="waiting-note">Waiting for the next bidder…</div>
+        <div className="waiting-note">Waiting for the next bidder… (auto-passes after 2h)</div>
       )}
+      {isMyBid && <div className="action-hint">Minimum bid: {fmtMoney(minNext)} (+5% raise). Pass and you're out.</div>}
     </div>
   );
 }

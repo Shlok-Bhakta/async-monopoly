@@ -9,6 +9,7 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as crons from "../crons.js";
 import type * as game from "../game.js";
 import type * as http from "../http.js";
 import type * as monopoly_auction from "../monopoly/auction.js";
@@ -27,6 +28,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  crons: typeof crons;
   game: typeof game;
   http: typeof http;
   "monopoly/auction": typeof monopoly_auction;

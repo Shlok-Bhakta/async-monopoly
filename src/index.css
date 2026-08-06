@@ -611,6 +611,12 @@ label {
   color: #888;
   text-align: center;
 }
+.action-hint {
+  font-size: 0.78rem;
+  color: #8a7b4a;
+  text-align: center;
+  padding-top: 4px;
+}
 
 /* ---------- Modals (bottom sheet on mobile) ---------- */
 .modal-backdrop {

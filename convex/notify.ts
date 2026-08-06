@@ -37,6 +37,18 @@ async function sendToUser(ctx: any, userId: Id<"users">, title: string, body: st
   }
 }
 
+export const sendManualPush = internalAction({
+  args: {
+    userId: v.id("users"),
+    title: v.string(),
+    body: v.string(),
+    url: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await sendToUser(ctx, args.userId, args.title, args.body, args.url ?? "/");
+  },
+});
+
 export const notifyCurrentTurn = internalAction({
   args: { gameId: v.id("games") },
   handler: async (ctx, { gameId }) => {

@@ -7,11 +7,14 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  advanceExpired,
   bid,
   buildBiddingOrder,
   createAuction,
   currentBidderId,
+  dropUnaffordable,
   maybeFinish,
+  minBid,
   pass,
 } from "../convex/monopoly/auction";
 
@@ -78,11 +81,21 @@ describe("bid", () => {
     expect(() => bid(s, B, 10, 100)).toThrow("Not your bid");
   });
 
-  it("rejects a bid that does not beat the current bid", () => {
+  it("rejects a bid below the percentage-based minimum raise", () => {
     let s = createAuction([A, B]);
-    s = bid(s, A, 50, 100);
-    expect(() => bid(s, B, 50, 100)).toThrow("higher than current bid");
-    expect(() => bid(s, B, 40, 100)).toThrow("higher than current bid");
+    s = bid(s, A, 100, 500);
+    // After $100, the minimum raise is 5%: next bid must be >= $105.
+    expect(() => bid(s, B, 101, 500)).toThrow("Bid must be at least $105");
+    expect(() => bid(s, B, 104, 500)).toThrow("Bid must be at least $105");
+    expect(bid(s, B, 105, 500).currentBid).toBe(105);
+  });
+
+  it("minBid scales naturally: small raises at low bids, big raises at high bids", () => {
+    expect(minBid(createAuction([A]))).toBe(1);
+    expect(minBid({ ...createAuction([A]), currentBid: 10 })).toBe(11);
+    expect(minBid({ ...createAuction([A]), currentBid: 100 })).toBe(105);
+    expect(minBid({ ...createAuction([A]), currentBid: 304 })).toBe(320);
+    expect(minBid({ ...createAuction([A]), currentBid: 1000 })).toBe(1050);
   });
 
   it("rejects a bid the player cannot afford", () => {
@@ -192,5 +205,51 @@ describe("maybeFinish", () => {
     s = bid(s, A, 10, 100);
     const result = maybeFinish(s);
     expect(result).toEqual({ winnerId: A, winningBid: 10, sold: true });
+  });
+});
+
+describe("dropUnaffordable", () => {
+  it("removes players who can't cover the next minimum bid", () => {
+    let s = createAuction([A, B, C]);
+    s = bid(s, A, 100, 500); // B's turn, min next = $105
+    const money = { [A]: 400, [B]: 104, [C]: 999 };
+    const next = dropUnaffordable(s, money);
+    // B can't afford $105 and is gone; A and C remain. Index stays on C? B was
+    // at index 1; after removal the array is [A, C] and index 1 points at C.
+    expect(next.order).toEqual([A, C]);
+    expect(currentBidderId(next)).toBe(C);
+  });
+
+  it("keeps the current bidder (they always can afford their own bid)", () => {
+    let s = createAuction([A, B]);
+    s = bid(s, A, 100, 500); // B to act, min $105
+    const money = { [A]: 100, [B]: 500 }; // A bid exactly what they had
+    const next = dropUnaffordable(s, money);
+    expect(next.order).toEqual([A, B]);
+  });
+});
+
+describe("advanceExpired", () => {
+  const T0 = 1_700_000_000_000;
+  // The bidder's window runs from their turn start + 2h, so "past" must be
+  // after that deadline (not before the bid was made).
+  const past = T0 + 2 * 60 * 60 * 1000 + 1000;
+  const future = T0 + 2 * 60 * 60 * 1000 - 1000;
+
+  it("auto-passes the current bidder after the deadline and refreshes the clock", () => {
+    let s = createAuction([A, B, C], 0, T0);
+    s = bid(s, A, 100, 500, T0); // B's turn
+    expect(currentBidderId(s)).toBe(B);
+    const advanced = advanceExpired(s, past);
+    expect(advanced.order).toEqual([A, C]);
+    expect(currentBidderId(advanced)).toBe(C);
+    expect(advanced.expiresAt).toBe(past + 2 * 60 * 60 * 1000);
+  });
+
+  it("no-ops before the deadline", () => {
+    let s = createAuction([A, B], 0, T0);
+    s = bid(s, A, 100, 500, T0);
+    const advanced = advanceExpired(s, future);
+    expect(advanced).toBe(s);
   });
 });

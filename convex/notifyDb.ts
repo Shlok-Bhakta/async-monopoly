@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { internal } from "./_generated/api";
 import { getSpace } from "./monopoly/board";
 
 function now(): number {
@@ -97,6 +98,23 @@ export const unsubscribePush = mutation({
   },
 });
 
+// Manual test push to the calling user's own subscriptions. Lets someone
+// verify push delivery end-to-end without waiting for a turn change.
+export const sendTestPush = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not signed in");
+    await ctx.scheduler.runAfter(0, internal.notify.sendManualPush, {
+      userId,
+      title: "🦀 Test ping",
+      body: "This is a manual test notification from CrabCake. If you see this, iOS push works!",
+      url: "/",
+    });
+    return "sent";
+  },
+});
+
 // Public, unauthenticated feed of active games — used by the Discord bridge
 // bot (CrabCake) to post turn notifications into the group chat. Exposes only
 // names + turn state, no auth or private data.
@@ -131,6 +149,7 @@ export const getDiscordFeed = query({
           spaceName: getSpace(auction.spaceIndex).name,
           currentBid: auction.currentBid,
           bidderToAct: bidder?.name ?? null,
+          bidDeadline: auction.expiresAt ?? null,
         };
       }
       out.push({
