@@ -95,3 +95,37 @@ export const unsubscribePush = mutation({
     if (existing) await ctx.db.delete(existing._id);
   },
 });
+
+// Public, unauthenticated feed of active games — used by the Discord bridge
+// bot (CrabCake) to post turn notifications into the group chat. Exposes only
+// names + turn state, no auth or private data.
+export const getDiscordFeed = query({
+  handler: async (ctx) => {
+    const games = await ctx.db.query("games").collect();
+    const active = games.filter((g) => g.status === "playing");
+    const out = [];
+    for (const g of active) {
+      const players = await ctx.db
+        .query("players")
+        .withIndex("by_game", (q) => q.eq("gameId", g._id))
+        .collect();
+      const sorted = [...players].sort((a, b) => a.seatIndex - b.seatIndex);
+      const current = sorted[g.turn] ?? null;
+      const events = await ctx.db
+        .query("events")
+        .withIndex("by_game", (q) => q.eq("gameId", g._id))
+        .order("desc")
+        .take(1);
+      out.push({
+        gameId: g._id,
+        name: g.name,
+        code: g.code,
+        turnPlayer: current?.name ?? null,
+        lastEvent: events[0]?.message ?? null,
+        lastEventAt: events[0]?.createdAt ?? 0,
+        updatedAt: g.lastActionAt ?? 0,
+      });
+    }
+    return out;
+  },
+});
