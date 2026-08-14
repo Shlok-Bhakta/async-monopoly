@@ -31,9 +31,10 @@ export function PropertiesPanel({ me, onSelect }: { me: PropsPanelPlayer | null 
   const owned = me.properties.map(spaceByIdx);
   if (owned.length === 0) {
     return (
-      <div className="panel">
-        <div className="panel-title">My Properties</div>
-        <div className="muted tiny">You don't own anything yet — land on something and buy it!</div>
+      <div className="panel properties-panel properties-empty">
+        <div className="panel-title">My deed wallet</div>
+        <div className="empty-deed-icon">⌂</div>
+        <div className="empty-panel-copy">Your title deeds will live here. Land on an open property to start your portfolio.</div>
       </div>
     );
   }
@@ -46,50 +47,35 @@ export function PropertiesPanel({ me, onSelect }: { me: PropsPanelPlayer | null 
   const utilities = owned.filter((s) => s.type === "utility");
 
   return (
-    <div className="panel">
-      <div className="panel-title">My Properties ({owned.length})</div>
-      {groups.map(({ group, spaces }) => (
-        <div key={group}>
-          <div className="prop-group-label" style={{ background: GROUP_COLORS[group] }}>
-            {group}
-          </div>
-          {spaces.map((s) => (
-            <PropertyRow key={s.index} space={s} me={me} onSelect={onSelect} />
-          ))}
-        </div>
-      ))}
-      {railroads.length > 0 && (
-        <div>
-          <div className="prop-group-label" style={{ background: "#444" }}>Railroads</div>
-          {railroads.map((s) => (
-            <PropertyRow key={s.index} space={s} me={me} onSelect={onSelect} />
-          ))}
-        </div>
-      )}
-      {utilities.length > 0 && (
-        <div>
-          <div className="prop-group-label" style={{ background: "#444" }}>Utilities</div>
-          {utilities.map((s) => (
-            <PropertyRow key={s.index} space={s} me={me} onSelect={onSelect} />
-          ))}
-        </div>
-      )}
+    <div className="panel properties-panel">
+      <div className="properties-heading">
+        <div><div className="panel-title">My deed wallet</div><div className="properties-count">{owned.length} propert{owned.length === 1 ? "y" : "ies"}</div></div>
+        <div className="properties-value">Portfolio</div>
+      </div>
+      <div className="properties-deck">
+        {groups.flatMap(({ group, spaces }) => spaces.map((space) => (
+          <PropertyRow key={space.index} space={space} me={me} onSelect={onSelect} groupColor={GROUP_COLORS[group]} />
+        )))}
+        {railroads.map((space) => <PropertyRow key={space.index} space={space} me={me} onSelect={onSelect} groupColor="#30343b" />)}
+        {utilities.map((space) => <PropertyRow key={space.index} space={space} me={me} onSelect={onSelect} groupColor="#16697a" />)}
+      </div>
     </div>
   );
 }
 
-function PropertyRow({ space, me, onSelect }: { space: any; me: PropsPanelPlayer; onSelect: (index: number) => void }) {
+function PropertyRow({ space, me, onSelect, groupColor }: { space: any; me: PropsPanelPlayer; onSelect: (index: number) => void; groupColor: string }) {
   const houses = me.houses.find((h) => h.space === space.index)?.count ?? 0;
   const mortgaged = me.mortgaged.includes(space.index);
   const symbol = propertySymbol(space);
-  const swatch = space.type === "property" && space.group ? GROUP_COLORS[space.group] : "#555";
   return (
-    <div className={`prop-row${mortgaged ? " mortgaged" : ""}`} onClick={() => onSelect(space.index)} title="Click for details">
-      <span className="prop-color" style={{ background: swatch }} />
-      {symbol ? <span className="prop-symbol">{symbol}</span> : <span className="prop-symbol" />}
-      <span className="prop-name">{space.name}</span>
-      {houses > 0 && <span className="prop-houses">{houses === 5 ? "🏨" : "🏠".repeat(houses)}</span>}
-      <span className="prop-price">{mortgaged ? "MORTGAGED" : fmtMoney(space.price ?? 0)}</span>
-    </div>
+    <button type="button" className={`deed-card${mortgaged ? " is-mortgaged" : ""}`} onClick={() => onSelect(space.index)} title="View title deed">
+      <span className="deed-card-band" style={{ background: groupColor }} />
+      <span className="deed-card-kicker">Title deed</span>
+      <span className="deed-card-name">{symbol && <span>{symbol}</span>}{space.name}</span>
+      <span className="deed-card-footer">
+        <span>{houses > 0 ? (houses === 5 ? "Hotel" : `${houses} house${houses === 1 ? "" : "s"}`) : "View details"}</span>
+        <strong>{mortgaged ? "MORTGAGED" : fmtMoney(space.price ?? 0)}</strong>
+      </span>
+    </button>
   );
 }

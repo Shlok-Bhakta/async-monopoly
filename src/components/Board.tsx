@@ -1,4 +1,5 @@
-import { SPACES } from "../../convex/monopoly/board";
+import { useRef } from "react";
+import { SPACES, type Space } from "../../convex/monopoly/board";
 import { spacePos, GROUP_COLORS } from "../lib/game";
 
 export interface BoardPlayer {
@@ -17,176 +18,203 @@ export interface BoardPlayer {
 
 interface Props {
   players: BoardPlayer[];
+  currentPlayerId?: string;
+  myPlayerId?: string;
   lastRoll: number[] | null;
+  rollKey?: number;
   onSpaceClick: (index: number) => void;
   selectedSpace: number | null;
   highlighted: number | null;
 }
 
+type HouseState = { count: number; owner: string | null; mortgaged: boolean };
+
+const TOKEN_COLORS = ["#ef4444", "#2563eb", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#4d7c0f", "#374151"];
+const DIE_PIPS: Record<number, number[]> = {
+  1: [5],
+  2: [1, 9],
+  3: [1, 5, 9],
+  4: [1, 3, 7, 9],
+  5: [1, 3, 5, 7, 9],
+  6: [1, 3, 4, 6, 7, 9],
+};
+
 function houseMap(players: BoardPlayer[]) {
-  const m: Record<number, { count: number; owner: string | null; mortgaged: boolean }> = {};
-  for (const p of players) {
-    for (const h of p.houses) {
-      m[h.space] = { count: h.count, owner: p._id, mortgaged: p.mortgaged.includes(h.space) };
+  const map: Record<number, HouseState> = {};
+  for (const player of players) {
+    for (const house of player.houses) {
+      map[house.space] = {
+        count: house.count,
+        owner: player._id,
+        mortgaged: player.mortgaged.includes(house.space),
+      };
     }
-    for (const s of p.mortgaged) {
-      if (!m[s]) m[s] = { count: 0, owner: p._id, mortgaged: true };
+    for (const space of player.mortgaged) {
+      if (!map[space]) map[space] = { count: 0, owner: player._id, mortgaged: true };
+    }
+    for (const space of player.properties) {
+      if (!map[space]) map[space] = { count: 0, owner: player._id, mortgaged: false };
     }
   }
-  return m;
+  return map;
 }
 
-export function Board({ players, lastRoll, onSpaceClick, selectedSpace, highlighted }: Props) {
-  const houses = houseMap(players);
-  const cells: React.ReactNode[] = [];
+function sideFor(index: number) {
+  if (index <= 10) return "bottom";
+  if (index <= 20) return "right";
+  if (index <= 30) return "top";
+  return "left";
+}
 
-  for (const space of SPACES) {
-    const { row, col } = spacePos(space.index);
-    const here = players.filter((p) => p.position === space.index);
-    const h = houses[space.index];
-    const isProperty = space.type === "property";
-    const isSelected = selectedSpace === space.index;
-    const isHighlighted = highlighted === space.index;
-
-    let content: React.ReactNode;
-    if (space.type === "go") {
-      content = (
-        <div className="corner" style={{ gridRow: row + 1, gridColumn: col + 1 }}>
-          <div className="corner-icon">➡️</div>
-          <div>GO</div>
-          <div className="tiny">Collect $200</div>
-        </div>
-      );
-    } else if (space.type === "jail") {
-      content = (
-        <div className="corner" style={{ gridRow: row + 1, gridColumn: col + 1 }}>
-          <div className="corner-icon">🔒</div>
-          <div>JAIL</div>
-          <div className="tiny">Just visiting</div>
-        </div>
-      );
-    } else if (space.type === "casino") {
-      content = (
-        <div className="corner" style={{ gridRow: row + 1, gridColumn: col + 1 }}>
-          <div className="corner-icon">🎰</div>
-          <div>CASINO</div>
-          <div className="tiny">Feeling lucky?</div>
-        </div>
-      );
-    } else if (space.type === "goToJail") {
-      content = (
-        <div className="corner" style={{ gridRow: row + 1, gridColumn: col + 1 }}>
-          <div className="corner-icon">👮</div>
-          <div>GO TO</div>
-          <div>JAIL</div>
-        </div>
-      );
-    } else if (space.type === "tax") {
-      content = (
-        <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name">{space.name}</div>
-          <div className="price">${space.tax}</div>
-        </div>
-      );
-    } else if (space.type === "chance") {
-      content = (
-        <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name symbol" style={{ color: "#c0392b" }}>?</div>
-          <div className="name tiny-label">Chance</div>
-        </div>
-      );
-    } else if (space.type === "communityChest") {
-      content = (
-        <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name symbol" style={{ color: "#2563eb" }}>✦</div>
-          <div className="name tiny-label">Community Chest</div>
-        </div>
-      );
-    } else if (space.type === "railroad") {
-      content = (
-        <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name symbol">🚂</div>
-          <div className="name">{space.name}</div>
-          <div className="price">${space.price}</div>
-        </div>
-      );
-    } else if (space.type === "utility") {
-      content = (
-        <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name symbol">{space.index === 12 ? "⚡" : "💧"}</div>
-          <div className="name">{space.name}</div>
-          <div className="price">${space.price}</div>
-        </div>
-      );
-    } else if (isProperty) {
-      content = (
-        <div
-          className="space-cell"
-          style={{
-            gridRow: row + 1,
-            gridColumn: col + 1,
-            boxShadow: isSelected ? "inset 0 0 0 3px var(--gold)" : undefined,
-          }}
-          onClick={() => onSpaceClick(space.index)}
+function Tokens({ players, myPlayerId, currentPlayerId }: { players: BoardPlayer[]; myPlayerId?: string; currentPlayerId?: string }) {
+  if (!players.length) return null;
+  return (
+    <div className="token-stack" aria-label={players.map((player) => player.name).join(", ")}>
+      {players.map((player) => (
+        <span
+          key={player._id}
+          className={`board-token${player._id === myPlayerId ? " is-mine" : ""}${player._id === currentPlayerId ? " is-current" : ""}`}
+          style={{ "--token-color": TOKEN_COLORS[player.seatIndex % TOKEN_COLORS.length] } as React.CSSProperties}
+          title={`${player.name}${player._id === myPlayerId ? " (you)" : ""}`}
         >
-          <div className="color-bar" style={{ background: GROUP_COLORS[space.group!] }} />
-          <div className="name">{space.name}</div>
-          {h && h.count > 0 && (
-            <div className="house-row">
-              {h.count === 5 ? (
-                <div className="hotel-pip" />
-              ) : (
-                Array.from({ length: h.count }).map((_, i) => <div key={i} className="house-pip" />)
-              )}
-            </div>
-          )}
-          <div className="price">${space.price}</div>
-          {h?.mortgaged && <div className="mortgaged-x">✕</div>}
-          {here.length > 0 && (
-            <div className="token-stack">
-              {here.map((p) => (
-                <span key={p._id} className="token" style={{ opacity: p.bankrupt ? 0.35 : 1 }} title={p.name}>
-                  {p.token.split(" ")[0]}
-                </span>
-              ))}
-            </div>
-          )}
-          {isHighlighted && !isSelected && (
-            <div style={{ position: "absolute", inset: 0, boxShadow: "inset 0 0 0 3px var(--gold)", pointerEvents: "none" }} />
-          )}
-        </div>
-      );
-    } else {
-      content = (
-        <div className="space-cell" style={{ gridRow: row + 1, gridColumn: col + 1 }} onClick={() => onSpaceClick(space.index)}>
-          <div className="name">{space.name}</div>
-        </div>
-      );
-    }
-    cells.push(<div key={space.index} style={{ display: "contents" }}>{content}</div>);
+          {player.token.split(" ")[0]}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function SpaceArtwork({ space }: { space: Space }) {
+  switch (space.type) {
+    case "go":
+      return <><span className="corner-kicker">Collect $200</span><span className="corner-word go-word">GO</span><span className="corner-arrow">↙</span></>;
+    case "jail":
+      return <><span className="corner-icon">🔒</span><span className="corner-word">JAIL</span><span className="corner-kicker">Just visiting</span></>;
+    case "casino":
+      return <><span className="corner-icon">🎰</span><span className="corner-word">CASINO</span><span className="corner-kicker">Feeling lucky?</span></>;
+    case "goToJail":
+      return <><span className="corner-icon">👮</span><span className="corner-word">GO TO JAIL</span></>;
+    case "tax":
+      return <><span className="space-icon">💸</span><span className="space-name">{space.name}</span><span className="space-price">${space.tax}</span></>;
+    case "chance":
+      return <><span className="card-symbol chance-symbol">?</span><span className="space-name">Chance</span></>;
+    case "communityChest":
+      return <><span className="card-symbol chest-symbol">✦</span><span className="space-name">Community Chest</span></>;
+    case "railroad":
+      return <><span className="space-icon">🚂</span><span className="space-name">{space.name}</span><span className="space-price">${space.price}</span></>;
+    case "utility":
+      return <><span className="space-icon">{space.index === 12 ? "💡" : "💧"}</span><span className="space-name">{space.name}</span><span className="space-price">${space.price}</span></>;
+    default:
+      return <><span className="space-name">{space.name}</span>{space.price !== undefined && <span className="space-price">${space.price}</span>}</>;
+  }
+}
+
+function BoardSpace({
+  space,
+  players,
+  house,
+  owner,
+  isSelected,
+  isHighlighted,
+  myPlayerId,
+  currentPlayerId,
+  onClick,
+}: {
+  space: Space;
+  players: BoardPlayer[];
+  house?: HouseState;
+  owner?: BoardPlayer;
+  isSelected: boolean;
+  isHighlighted: boolean;
+  myPlayerId?: string;
+  currentPlayerId?: string;
+  onClick: () => void;
+}) {
+  const { row, col } = spacePos(space.index);
+  const isCorner = ["go", "jail", "casino", "goToJail"].includes(space.type);
+  return (
+    <button
+      type="button"
+      className={`board-space side-${sideFor(space.index)}${isCorner ? " corner-space" : ""}${isSelected ? " is-selected" : ""}${isHighlighted ? " is-highlighted" : ""}${house?.mortgaged ? " is-mortgaged" : ""}`}
+      style={{ gridRow: row + 1, gridColumn: col + 1 }}
+      onClick={onClick}
+      aria-label={`${space.name}${owner ? `, owned by ${owner.name}` : ""}`}
+      data-space={space.index}
+    >
+      {space.type === "property" && <span className="deed-band" style={{ background: GROUP_COLORS[space.group!] }} />}
+      {owner && <span className="owner-mark" style={{ background: TOKEN_COLORS[owner.seatIndex % TOKEN_COLORS.length] }} title={`Owned by ${owner.name}`} />}
+      <span className="space-art"><SpaceArtwork space={space} /></span>
+      {house && house.count > 0 && (
+        <span className="building-row" aria-label={house.count === 5 ? "Hotel" : `${house.count} houses`}>
+          {house.count === 5 ? <span className="hotel-pip" /> : Array.from({ length: house.count }, (_, index) => <span key={index} className="house-pip" />)}
+        </span>
+      )}
+      {house?.mortgaged && <span className="mortgage-stamp">M</span>}
+      <Tokens players={players} myPlayerId={myPlayerId} currentPlayerId={currentPlayerId} />
+    </button>
+  );
+}
+
+function Die({ value, index, animate }: { value: number; index: number; animate: boolean }) {
+  return (
+    <div className={`die-face${animate ? " is-rolling" : ""}`} style={{ animationDelay: `${index * 90}ms` }} aria-label={`${value}`}>
+      {DIE_PIPS[value].map((position) => <span key={position} className={`pip pip-${position}`} />)}
+    </div>
+  );
+}
+
+export function Board({ players, currentPlayerId, myPlayerId, lastRoll, rollKey, onSpaceClick, selectedSpace, highlighted }: Props) {
+  const houses = houseMap(players);
+  const scroller = useRef<HTMLDivElement>(null);
+  const currentPlayer = players.find((player) => player._id === currentPlayerId);
+  const me = players.find((player) => player._id === myPlayerId);
+
+  function focusPlayer(player?: BoardPlayer) {
+    if (!player || !scroller.current) return;
+    const cell = scroller.current.querySelector<HTMLElement>(`[data-space="${player.position}"]`);
+    cell?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
   }
 
   return (
-    <div className="board-scroll">
-      <div className="board-shell">
-        {cells}
-        <div className="board-center">
-          <div className="center-logo">Crabopoly</div>
-          <div className="dice-row">
-            {lastRoll ? (
-              lastRoll.map((d, i) => (
-                <div key={i} className={`die ${lastRoll[0] === lastRoll[1] ? "doubles" : ""}`}>{d}</div>
-              ))
-            ) : (
-              <>
-                <div className="die" style={{ opacity: 0.4 }}>?</div>
-                <div className="die" style={{ opacity: 0.4 }}>?</div>
-              </>
-            )}
+    <section className="board-section" aria-label="Crabopoly board">
+      <div className="board-toolbar">
+        <div>
+          <span className="eyebrow">Board</span>
+          <span className="board-turn-label">{currentPlayer ? `${currentPlayer.token.split(" ")[0]} ${currentPlayer.name}'s turn` : "Game in progress"}</span>
+        </div>
+        <button type="button" className="locate-button" onClick={() => focusPlayer(me)}>◎ Find me</button>
+      </div>
+      <div className="board-scroll" ref={scroller}>
+        <div className="board-shell">
+          {SPACES.map((space) => {
+            const here = players.filter((player) => player.position === space.index && !player.bankrupt);
+            const house = houses[space.index];
+            const owner = players.find((player) => player._id === house?.owner);
+            return (
+              <BoardSpace
+                key={space.index}
+                space={space}
+                players={here}
+                house={house}
+                owner={owner}
+                isSelected={selectedSpace === space.index}
+                isHighlighted={highlighted === space.index}
+                myPlayerId={myPlayerId}
+                currentPlayerId={currentPlayerId}
+                onClick={() => onSpaceClick(space.index)}
+              />
+            );
+          })}
+          <div className="board-center">
+            <div className="center-brand"><span>🦀</span><strong>CRABOPOLY</strong><small>COASTAL EDITION</small></div>
+            <div key={rollKey ?? lastRoll?.join("-")} className="dice-row" aria-label={lastRoll ? `Last roll: ${lastRoll.join(" and ")}` : "No roll yet"}>
+              {lastRoll ? lastRoll.map((value, index) => <Die key={index} value={value} index={index} animate />) : <><div className="die-face die-empty">?</div><div className="die-face die-empty">?</div></>}
+            </div>
+            <div className="center-caption">ROLL · DEAL · REEL IT IN</div>
           </div>
-          <div className="center-tagline">Async Monopoly for the group chat</div>
         </div>
       </div>
-    </div>
+      <div className="board-pan-hint">Swipe the board to explore • tap any deed for details</div>
+    </section>
   );
 }
