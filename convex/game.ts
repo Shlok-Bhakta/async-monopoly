@@ -693,7 +693,7 @@ export const buyProperty = mutation({
     if (player.money < (space.price ?? 0)) throw new Error("Not enough money to buy");
     const fresh = (await ctx.db.get(player._id))!;
     await ctx.db.patch(player._id, { money: fresh.money - (space.price ?? 0), properties: [...fresh.properties, spaceIndex] });
-    await ctx.db.patch(gameId, { phase: "manage", phaseData: {} });
+    await ctx.db.patch(gameId, { phase: game.doublesCount > 0 ? "roll" : "manage", phaseData: {} });
     await log(ctx, gameId, player._id, "buy", `${player.name} bought ${space.name} for $${space.price}.`);
   },
 });
@@ -932,7 +932,7 @@ export const settleDebt = mutation({
     await maybeNotifyTurn(ctx, gameId);
       await log(ctx, gameId, null, "turn", `It's ${players[next].name}'s turn.`);
     } else {
-      await ctx.db.patch(gameId, { phase: "manage", phaseData: {} });
+      await ctx.db.patch(gameId, { phase: game.doublesCount > 0 ? "roll" : "manage", phaseData: {} });
     }
   },
 });
