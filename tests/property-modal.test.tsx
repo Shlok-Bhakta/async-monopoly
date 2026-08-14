@@ -77,3 +77,14 @@ describe("PropertyModal house-building actions", () => {
     expect(html).not.toContain("Land on any property in this color set to build here.");
   });
 });
+
+describe("PropertyModal monopoly portfolio rent", () => {
+  it("shows the owner's 5% monopoly bonus in the displayed rent calculation", () => {
+    const html = renderProperty(24, "manage", owner({ properties: [1, 3, 24] }));
+
+    expect(html).toContain("Monopoly portfolio bonus: +5% (1 monopoly)");
+    expect(html).toContain("Rent with bonus");
+    expect(html).toContain("$21");
+    expect(html).not.toContain("With color group (no houses)");
+  });
+});
