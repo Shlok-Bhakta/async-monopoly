@@ -1,9 +1,12 @@
 // Pure casino minigame logic for the Casino board space (index 20).
 //
-// Dependency-free so it can be unit tested with plain vitest — see
+// Pure rules that can be unit tested with plain vitest — see
 // tests/casino.test.ts. Mutations in convex/game.ts apply these to the game.
 
+import { SPACES, type Space } from "./board";
+
 export const CASINO_STAKE = 50;
+export const CASINO_CASH_PRIZE = 200;
 
 export type SlotsOutcome = "jackpot" | "pair" | "none";
 export type OverUnderPick = "over" | "under";
@@ -18,6 +21,12 @@ export interface OverUnderResult {
   outcome: "win" | "lose";
   /** Absolute payout in dollars (0 on a loss). Stake is NOT returned. */
   payout: number;
+}
+
+/** The Casino awards the first available deed in board order. */
+export function firstUnownedDeed(ownedSpaces: Iterable<number>): Space | null {
+  const owned = new Set(ownedSpaces);
+  return SPACES.find((space) => space.price !== undefined && !owned.has(space.index)) ?? null;
 }
 
 /** Roll three independent 1-6 reels. */
