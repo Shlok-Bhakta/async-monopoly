@@ -7,6 +7,12 @@ import schema from "../convex/schema";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 
+function randomForCard(deck: typeof CHANCE_DECK, text: string): number {
+  const index = deck.findIndex((card) => card.text === text);
+  if (index < 0) throw new Error(`Card not found: ${text}`);
+  return (index + 0.5) / deck.length;
+}
+
 async function gameApproachingStockMarket() {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
@@ -113,7 +119,7 @@ describe("Stock Market event cards", () => {
     vi.spyOn(Math, "random")
       .mockReturnValueOnce(0)
       .mockReturnValueOnce(0.2)
-      .mockReturnValueOnce(0.999); // 1 + 2 to Chance, then the new surge card.
+      .mockReturnValueOnce(randomForCard(CHANCE_DECK, "The market surges! Every investment gains 25% of its principal."));
 
     await asAlice.mutation(api.game.roll, { gameId });
 
@@ -143,7 +149,7 @@ describe("Stock Market event cards", () => {
     vi.spyOn(Math, "random")
       .mockReturnValueOnce(0)
       .mockReturnValueOnce(0.2)
-      .mockReturnValueOnce(0.999); // 1 + 2 to Community Chest, then the slump card.
+      .mockReturnValueOnce(randomForCard(COMMUNITY_CHEST_DECK, "The market slumps. Every investment loses 25% of its principal."));
 
     await asAlice.mutation(api.game.roll, { gameId });
 
