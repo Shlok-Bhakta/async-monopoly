@@ -20,6 +20,33 @@ export interface Card {
   effect: CardEffect;
 }
 
+export function shuffleDeck(size: number, random: () => number = Math.random): number[] {
+  const deck = Array.from({ length: size }, (_, index) => index);
+  for (let index = deck.length - 1; index > 0; index--) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    [deck[index], deck[swapIndex]] = [deck[swapIndex], deck[index]];
+  }
+  return deck;
+}
+
+export function drawCard(
+  size: number,
+  remaining: number[],
+  lastDrawn?: number,
+  random: () => number = Math.random,
+): { cardIndex: number; remaining: number[] } {
+  const liveDeck = remaining.length > 0 ? remaining : shuffleDeck(size, random);
+  const topIndex = liveDeck.length - 1;
+  if (remaining.length === 0 && liveDeck.length > 1 && liveDeck[topIndex] === lastDrawn) {
+    const swapIndex = Math.floor(random() * topIndex);
+    [liveDeck[topIndex], liveDeck[swapIndex]] = [liveDeck[swapIndex], liveDeck[topIndex]];
+  }
+  return {
+    cardIndex: liveDeck[topIndex],
+    remaining: liveDeck.slice(0, -1),
+  };
+}
+
 export const CHANCE_DECK: Card[] = [
   { text: "Advance to Go. Collect $200.", effect: { type: "moveTo", space: 0, collectOnPass: true } },
   { text: "Advance to Illinois Avenue.", effect: { type: "moveTo", space: 24 } },

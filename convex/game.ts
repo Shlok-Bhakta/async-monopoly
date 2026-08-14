@@ -28,7 +28,7 @@ import {
   jailBailAmount,
   moveStockValue,
 } from "./monopoly/engine";
-import { CHANCE_DECK, COMMUNITY_CHEST_DECK } from "./monopoly/cards";
+import { CHANCE_DECK, COMMUNITY_CHEST_DECK, shuffleDeck } from "./monopoly/cards";
 import {
   bid as auctionBidAction,
   pass as auctionPassAction,
@@ -204,6 +204,8 @@ export const createGame = mutation({
       doublesCount: 0,
       lastActionAt: now(),
       seed: Math.floor(Math.random() * 1e9),
+      chanceDeck: shuffleDeck(CHANCE_DECK.length),
+      communityChestDeck: shuffleDeck(COMMUNITY_CHEST_DECK.length),
     });
     await ctx.db.insert("players", {
       gameId,
