@@ -1032,13 +1032,9 @@ export const mortgage = mutation({
   handler: async (ctx, { gameId, space }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not signed in");
-    const { game, player } = await requirePlayer(ctx, gameId, userId);
-    const allowedPhase = game.phase === "manage" || game.phase === "debt";
-    if (!allowedPhase) throw new Error("You cannot mortgage right now");
-    if (game.phase === "manage") {
-      const all = await ctx.db.query("players").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect();
-      if (all[game.turn]._id !== player._id) throw new Error("Not your turn");
-    }
+    const { game, player, players } = await requirePlayer(ctx, gameId, userId);
+    if (game.status !== "playing") throw new Error("Game not in progress");
+    if (players[game.turn]?._id !== player._id) throw new Error("Not your turn");
     const fresh = (await ctx.db.get(player._id))!;
     if (!fresh.properties.includes(space)) throw new Error("You don't own that");
     if (fresh.mortgaged.includes(space)) throw new Error("Already mortgaged");
@@ -1151,9 +1147,11 @@ export const respondTrade = mutation({
     // Verify the offers are still valid (both sides still own what they offered).
     for (const s of trade.fromProperties) {
       if (!from.properties.includes(s)) throw new Error("Offer no longer valid (property changed)");
+      if (from.mortgaged.includes(s)) throw new Error("Offer no longer valid (property mortgaged)");
     }
     for (const s of trade.toProperties) {
       if (!to.properties.includes(s)) throw new Error("Offer no longer valid (property changed)");
+      if (to.mortgaged.includes(s)) throw new Error("Offer no longer valid (property mortgaged)");
     }
     const newFromProps = from.properties.filter((s: number) => !trade.fromProperties.includes(s)).concat(trade.toProperties);
     const newToProps = to.properties.filter((s: number) => !trade.toProperties.includes(s)).concat(trade.fromProperties);

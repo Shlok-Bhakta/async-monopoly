@@ -199,6 +199,7 @@ export function Game() {
           players={data.players}
           me={me}
           myTurn={myTurn}
+          gameStatus={data.game.status}
           phase={phase}
           houseSupply={data.houseSupply}
           hotelSupply={data.hotelSupply}
@@ -454,13 +455,15 @@ function PendingTrade({ trade, players, meId, onRespond, onCancel }: any) {
 
 // ---------------------------------------------------------------------------
 
-function PropertyModal({ space, players, me, myTurn, phase, houseSupply, hotelSupply, onClose, onBuild, onSellHouse, onMortgage, onUnmortgage }: any) {
+export function PropertyModal({ space, players, me, myTurn, gameStatus, phase, houseSupply, hotelSupply, onClose, onBuild, onSellHouse, onMortgage, onUnmortgage }: any) {
   const s = getSpace(space);
   const owner = players.find((p: any) => p.properties.includes(space));
   const mine = owner && me && owner._id === me._id;
   const myHouseCount = mine ? (me.houses.find((h: any) => h.space === space)?.count ?? 0) : 0;
   const mortgaged = owner?.mortgaged?.includes(space);
   const canManage = myTurn && (phase === "manage" || phase === "debt");
+  const canMortgage = gameStatus === "playing" && myTurn && !mortgaged && myHouseCount === 0 && s.mortgage !== undefined;
+  const canUnmortgage = canManage && mortgaged && s.mortgage !== undefined;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -517,13 +520,15 @@ function PropertyModal({ space, players, me, myTurn, phase, houseSupply, hotelSu
               <button className="btn-primary" onClick={onBuild}>Build {myHouseCount === 4 ? "hotel" : "house"} ({fmtMoney(s.houseCost ?? 0)})</button>
             )}
             {myHouseCount > 0 && <button className="btn-ghost" onClick={onSellHouse}>Sell house (get {fmtMoney(Math.floor((s.houseCost ?? 0) / 2))})</button>}
-            {!mortgaged && myHouseCount === 0 && (
-              <button className="btn-ghost" onClick={onMortgage}>Mortgage (get {fmtMoney(s.mortgage ?? 0)})</button>
-            )}
-            {mortgaged && <button className="btn-primary" onClick={onUnmortgage}>Unmortgage ({fmtMoney(Math.ceil((s.mortgage ?? 0) * 1.1))})</button>}
           </div>
         )}
-        {mine && !canManage && (
+        {mine && (canMortgage || canUnmortgage) && (
+          <div className="property-actions">
+            {canMortgage && <button className="btn-ghost" onClick={onMortgage}>Mortgage (get {fmtMoney(s.mortgage ?? 0)})</button>}
+            {canUnmortgage && <button className="btn-primary" onClick={onUnmortgage}>Unmortgage ({fmtMoney(Math.ceil((s.mortgage ?? 0) * 1.1))})</button>}
+          </div>
+        )}
+        {mine && !myTurn && (
           <div className="muted tiny" style={{ marginTop: 10 }}>You can manage this on your turn (or while settling debt).</div>
         )}
       </div>
@@ -531,7 +536,7 @@ function PropertyModal({ space, players, me, myTurn, phase, houseSupply, hotelSu
   );
 }
 
-function TradeModal({ players, meId, gameId, onClose, onError }: any) {
+export function TradeModal({ players, meId, gameId, onClose, onError }: any) {
   const sendTrade = useMutation(api.game.sendTrade);
   const me = players.find((p: any) => p._id === meId);
   const others = players.filter((p: any) => p._id !== meId && !p.bankrupt);
@@ -543,6 +548,11 @@ function TradeModal({ players, meId, gameId, onClose, onError }: any) {
   const [busy, setBusy] = useState(false);
 
   const target = others.find((p: any) => p._id === toId);
+  const tradableProperties = (player: any) => player?.properties.filter(
+    (s: number) => !player.mortgaged.includes(s) && !(player.houses.find((h: any) => h.space === s)?.count),
+  ) ?? [];
+  const myTradableProperties = tradableProperties(me);
+  const theirTradableProperties = tradableProperties(target);
 
   function toggle(list: number[], set: (v: number[]) => void, v: number) {
     set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
@@ -583,13 +593,13 @@ function TradeModal({ players, meId, gameId, onClose, onError }: any) {
           <div className="trade-side trade-give">
             <h4><span>You give</span><small>{me?.name}</small></h4>
             <div className="trade-property-list">
-              {me?.properties.filter((s: number) => !me.mortgaged.includes(s) && !(me.houses.find((h: any) => h.space === s)?.count)).map((s: number) => (
+              {myTradableProperties.map((s: number) => (
                 <label key={s} className="check-row">
                   <input type="checkbox" checked={myProps.includes(s)} onChange={() => toggle(myProps, setMyProps, s)} />
                   <span>{getSpace(s).name}</span>
                 </label>
               ))}
-              {!me?.properties.length && <div className="empty-trade-side">No tradable deeds</div>}
+              {myTradableProperties.length === 0 && <div className="empty-trade-side">No tradable deeds</div>}
             </div>
             <label className="trade-cash"><span>Cash <small>{fmtMoney(me?.money ?? 0)} available</small></span><input type="number" min={0} max={me?.money ?? 0} value={myCash} onChange={(e) => setMyCash(Math.max(0, Number(e.target.value)))} /></label>
           </div>
@@ -599,13 +609,13 @@ function TradeModal({ players, meId, gameId, onClose, onError }: any) {
           <div className="trade-side trade-receive">
             <h4><span>You receive</span><small>{target?.name}</small></h4>
             <div className="trade-property-list">
-              {target?.properties.filter((s: number) => !target.mortgaged.includes(s) && !(target.houses.find((h: any) => h.space === s)?.count)).map((s: number) => (
+              {theirTradableProperties.map((s: number) => (
                 <label key={s} className="check-row">
                   <input type="checkbox" checked={theirProps.includes(s)} onChange={() => toggle(theirProps, setTheirProps, s)} />
                   <span>{getSpace(s).name}</span>
                 </label>
               ))}
-              {!target?.properties.length && <div className="empty-trade-side">No tradable deeds</div>}
+              {theirTradableProperties.length === 0 && <div className="empty-trade-side">No tradable deeds</div>}
             </div>
             <label className="trade-cash"><span>Cash <small>{fmtMoney(target?.money ?? 0)} available</small></span><input type="number" min={0} max={target?.money ?? 0} value={theirCash} onChange={(e) => setTheirCash(Math.max(0, Number(e.target.value)))}/></label>
           </div>

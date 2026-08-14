@@ -27,6 +27,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^6.0.4",
+    "convex-test": "^0.0.54",
     "oxlint": "^1.75.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
