@@ -2,6 +2,7 @@
 
 import {
   getSpace,
+  GROUPS,
   RAILROAD_RENTS,
   UTILITY_MULTIPLIERS,
   groupSpaces,
@@ -12,6 +13,8 @@ import {
   JAIL_BAIL,
   MAX_JAIL_TURNS,
 } from "./board";
+
+export const MONOPOLY_RENT_BONUS = 0.05;
 
 export function rollDice(): [number, number] {
   return [1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)];
@@ -53,6 +56,14 @@ export function totalHotels(player: EnginePlayer): number {
   return player.houses.filter((h) => h.count === 5).length;
 }
 
+export function monopolyCount(properties: number[]): number {
+  return Object.keys(GROUPS).filter((group) => isGroupMonopolized(properties, group)).length;
+}
+
+export function monopolyRentMultiplier(properties: number[]): number {
+  return 1 + monopolyCount(properties) * MONOPOLY_RENT_BONUS;
+}
+
 // Advance by `steps`, collecting GO salary if we pass (but not land on) GO.
 export function moveBySteps(player: EnginePlayer, steps: number): { position: number; salary: number } {
   let salary = 0;
@@ -82,6 +93,19 @@ export interface RentInfo {
   breakdown: string;
 }
 
+function rentModifiers(owner: EnginePlayer, cardMultiplier: number): { multiplier: number; label: string } {
+  const monopolies = monopolyCount(owner.properties);
+  const bonusPercent = monopolies * MONOPOLY_RENT_BONUS * 100;
+  const bonusLabel = monopolies > 0
+    ? ` +${bonusPercent}% (${monopolies} monopol${monopolies === 1 ? "y" : "ies"})`
+    : "";
+  const cardLabel = cardMultiplier !== 1 ? ` x${cardMultiplier} (card)` : "";
+  return {
+    multiplier: (1 + bonusPercent / 100) * cardMultiplier,
+    label: `${bonusLabel}${cardLabel}`,
+  };
+}
+
 // Compute rent owed for landing on `spaceIndex` owned by `owner`.
 // multiplier: e.g. 2 when a Chance card says "pay double".
 export function computeRent(
@@ -97,42 +121,35 @@ export function computeRent(
   if (owner.mortgaged.includes(spaceIndex)) {
     return { amount: 0, breakdown: "Mortgaged — no rent" };
   }
+  const modifiers = rentModifiers(owner, multiplier);
   if (space.type === "property") {
     const houses = houseCount(owner, spaceIndex);
     if (houses === 0) {
-      const mono = isGroupMonopolized(owner.properties, space.group!);
       const base = space.rents![0];
-      const amount = mono ? base * 2 : base;
-      const amountFinal = amount * multiplier;
       return {
-        amount: amountFinal,
-        breakdown: mono
-          ? `Base ${base} x2 (monopoly)${multiplier !== 1 ? ` x${multiplier} (card)` : ""}`
-          : `Base ${base}${multiplier !== 1 ? ` x${multiplier} (card)` : ""}`,
+        amount: base * modifiers.multiplier,
+        breakdown: `Base ${base}${modifiers.label}`,
       };
     }
     const rent = space.rents![houses];
-    const amountFinal = rent * multiplier;
     const label = houses === 5 ? "hotel" : `${houses} house${houses > 1 ? "s" : ""}`;
-    return { amount: amountFinal, breakdown: `${label} rent ${rent}${multiplier !== 1 ? ` x${multiplier} (card)` : ""}` };
+    return { amount: rent * modifiers.multiplier, breakdown: `${label} rent ${rent}${modifiers.label}` };
   }
   if (space.type === "railroad") {
     const count = railroadCount(owner.properties);
     const rent = RAILROAD_RENTS[count - 1];
-    const amountFinal = rent * multiplier;
     return {
-      amount: amountFinal,
-      breakdown: `${count} railroad${count > 1 ? "s" : ""} => $${rent}${multiplier !== 1 ? ` x${multiplier} (card)` : ""}`,
+      amount: rent * modifiers.multiplier,
+      breakdown: `${count} railroad${count > 1 ? "s" : ""} => $${rent}${modifiers.label}`,
     };
   }
   if (space.type === "utility") {
     const count = utilityCount(owner.properties);
     const mult = UTILITY_MULTIPLIERS[count - 1];
     const rent = diceSum * mult;
-    const amountFinal = rent * multiplier;
     return {
-      amount: amountFinal,
-      breakdown: `${count} utilit${count === 1 ? "y" : "ies"} => ${mult} x dice(${diceSum})${multiplier !== 1 ? ` x${multiplier} (card)` : ""}`,
+      amount: rent * modifiers.multiplier,
+      breakdown: `${count} utilit${count === 1 ? "y" : "ies"} => ${mult} x dice(${diceSum})${modifiers.label}`,
     };
   }
   return { amount: 0, breakdown: "" };

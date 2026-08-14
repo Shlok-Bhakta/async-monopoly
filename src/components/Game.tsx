@@ -4,7 +4,7 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { getSpace, isOnPropertySet } from "../../convex/monopoly/board";
 import { MIN_BID_INCREMENT_PERCENT } from "../../convex/monopoly/auction";
-import { jailBailAmount } from "../../convex/monopoly/engine";
+import { jailBailAmount, MONOPOLY_RENT_BONUS, monopolyCount, monopolyRentMultiplier } from "../../convex/monopoly/engine";
 import { fmtMoney, GROUP_COLORS } from "../lib/game";
 import { Board } from "./Board";
 import { PropertiesPanel } from "./PropertiesPanel";
@@ -522,6 +522,13 @@ export function PropertyModal({ space, players, me, myTurn, gameStatus, phase, h
   const onBuildableSet = Boolean(me && isOnPropertySet(me.position, space));
   const canMortgage = gameStatus === "playing" && myTurn && !mortgaged && myHouseCount === 0 && s.mortgage !== undefined;
   const canUnmortgage = canManage && mortgaged && s.mortgage !== undefined;
+  const ownerMonopolies = owner ? monopolyCount(owner.properties) : 0;
+  const rentMultiplier = owner ? monopolyRentMultiplier(owner.properties) : 1;
+  const monopolyBonusPercent = ownerMonopolies * MONOPOLY_RENT_BONUS * 100;
+  const adjustedRent = (rent: number) => rent * rentMultiplier;
+  const bonusDescription = ownerMonopolies > 0
+    ? `Monopoly portfolio bonus: +${monopolyBonusPercent}% (${ownerMonopolies} monopol${ownerMonopolies === 1 ? "y" : "ies"})`
+    : null;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -538,29 +545,30 @@ export function PropertyModal({ space, players, me, myTurn, gameStatus, phase, h
           <div className="owner-line">Unowned — Bank</div>
         )}
 
+        {bonusDescription && <div className="muted tiny" title={bonusDescription}>{bonusDescription}</div>}
+
         {s.type === "property" && (
           <div className="rent-grid">
-            <span>Rent</span><span className="amt">{fmtMoney(s.rents![0])}</span>
-            <span>With color group (no houses)</span><span className="amt">{fmtMoney(s.rents![0] * 2)}</span>
-            <span>1 house</span><span className="amt">{fmtMoney(s.rents![1])}</span>
-            <span>2 houses</span><span className="amt">{fmtMoney(s.rents![2])}</span>
-            <span>3 houses</span><span className="amt">{fmtMoney(s.rents![3])}</span>
-            <span>4 houses</span><span className="amt">{fmtMoney(s.rents![4])}</span>
-            <span>HOTEL</span><span className="amt">{fmtMoney(s.rents![5])}</span>
+            <span>{ownerMonopolies > 0 ? "Rent with bonus" : "Rent"}</span><span className="amt">{fmtMoney(adjustedRent(s.rents![0]))}</span>
+            <span>1 house</span><span className="amt">{fmtMoney(adjustedRent(s.rents![1]))}</span>
+            <span>2 houses</span><span className="amt">{fmtMoney(adjustedRent(s.rents![2]))}</span>
+            <span>3 houses</span><span className="amt">{fmtMoney(adjustedRent(s.rents![3]))}</span>
+            <span>4 houses</span><span className="amt">{fmtMoney(adjustedRent(s.rents![4]))}</span>
+            <span>HOTEL</span><span className="amt">{fmtMoney(adjustedRent(s.rents![5]))}</span>
           </div>
         )}
         {s.type === "railroad" && (
           <div className="rent-grid">
-            <span>1 railroad</span><span className="amt">$25</span>
-            <span>2 railroads</span><span className="amt">$50</span>
-            <span>3 railroads</span><span className="amt">$100</span>
-            <span>4 railroads</span><span className="amt">$200</span>
+            <span>1 railroad</span><span className="amt">{fmtMoney(adjustedRent(25))}</span>
+            <span>2 railroads</span><span className="amt">{fmtMoney(adjustedRent(50))}</span>
+            <span>3 railroads</span><span className="amt">{fmtMoney(adjustedRent(100))}</span>
+            <span>4 railroads</span><span className="amt">{fmtMoney(adjustedRent(200))}</span>
           </div>
         )}
         {s.type === "utility" && (
           <div className="rent-grid">
-            <span>1 utility owned</span><span className="amt">4× dice</span>
-            <span>2 utilities owned</span><span className="amt">10× dice</span>
+            <span>1 utility owned</span><span className="amt">{4 * rentMultiplier}× dice</span>
+            <span>2 utilities owned</span><span className="amt">{10 * rentMultiplier}× dice</span>
           </div>
         )}
 
