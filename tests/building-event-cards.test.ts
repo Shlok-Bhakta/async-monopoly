@@ -6,6 +6,12 @@ import schema from "../convex/schema";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 
+function cardIndex(deck: typeof CHANCE_DECK, text: string): number {
+  const index = deck.findIndex((card) => card.text === text);
+  if (index < 0) throw new Error(`Card not found: ${text}`);
+  return index;
+}
+
 const NEW_BUILDING_CARDS = [
   {
     text: "Storm damage! Pay $30 for each house and $125 for each hotel.",
@@ -117,10 +123,12 @@ describe("building-related event card decks", () => {
 
   it("deals and renders the storm repair card with separate house and hotel costs", async () => {
     const { t, asAlice, gameId, playerId } = await gameApproachingCardSpace(4);
+    await t.run((ctx) => ctx.db.patch(gameId, {
+      chanceDeck: [cardIndex(CHANCE_DECK, "Storm damage! Pay $30 for each house and $125 for each hotel.")],
+    }));
     vi.spyOn(Math, "random")
       .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0.2)
-      .mockReturnValueOnce(0.9); // Roll 1 + 2 onto Chance, then draw index 16 of 18.
+      .mockReturnValueOnce(0.2); // Roll 1 + 2 onto Chance.
 
     await asAlice.mutation(api.game.roll, { gameId });
 
@@ -139,10 +147,12 @@ describe("building-related event card decks", () => {
 
   it("deals and renders the city beautification windfall from the Chance deck", async () => {
     const { t, asAlice, gameId, playerId } = await gameApproachingCardSpace(4);
+    await t.run((ctx) => ctx.db.patch(gameId, {
+      chanceDeck: [cardIndex(CHANCE_DECK, "Your properties win city beautification awards. Collect $25 for each house and $100 for each hotel.")],
+    }));
     vi.spyOn(Math, "random")
       .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0.2)
-      .mockReturnValueOnce(0.999); // Roll 1 + 2 onto Chance, then draw index 17 of 18.
+      .mockReturnValueOnce(0.2); // Roll 1 + 2 onto Chance.
 
     await asAlice.mutation(api.game.roll, { gameId });
 
@@ -161,11 +171,15 @@ describe("building-related event card decks", () => {
 
   it("deals the housing grant from Community Chest without awarding an empty portfolio", async () => {
     const { t, asAlice, gameId, playerId } = await gameApproachingCardSpace(14);
-    await t.run((ctx) => ctx.db.patch(playerId, { properties: [], houses: [] }));
+    await t.run(async (ctx) => {
+      await ctx.db.patch(playerId, { properties: [], houses: [] });
+      await ctx.db.patch(gameId, {
+        communityChestDeck: [cardIndex(COMMUNITY_CHEST_DECK, "Local housing grants are approved. Collect $40 for each house and $150 for each hotel.")],
+      });
+    });
     vi.spyOn(Math, "random")
       .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0.2)
-      .mockReturnValueOnce(0.999); // Roll 1 + 2 onto Community Chest, then draw index 16 of 17.
+      .mockReturnValueOnce(0.2); // Roll 1 + 2 onto Community Chest.
 
     await asAlice.mutation(api.game.roll, { gameId });
 

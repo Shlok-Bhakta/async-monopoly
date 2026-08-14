@@ -28,6 +28,10 @@ export default defineSchema({
     winner: v.optional(v.id("players")),
     lastActionAt: v.number(),
     seed: v.number(),
+    chanceDeck: v.optional(v.array(v.number())),
+    communityChestDeck: v.optional(v.array(v.number())),
+    lastChanceCard: v.optional(v.number()),
+    lastCommunityChestCard: v.optional(v.number()),
   })
     .index("by_code", ["code"])
     .index("by_status", ["status"])
