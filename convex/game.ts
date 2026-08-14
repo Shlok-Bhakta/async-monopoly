@@ -722,6 +722,7 @@ export const jailAction = mutation({
     await ctx.db.patch(gameId, { lastRoll: dice, lastRollSum: sum, lastActionAt: now() });
     await log(ctx, gameId, player._id, "roll", `${player.name} rolled ${dice[0]} + ${dice[1]} = ${sum} in Jail.`);
     if (isDoubles(dice)) {
+      const jailEscapeDoublesCount = 1;
       await ctx.db.patch(player._id, { inJail: false, jailTurns: 0 });
       await log(ctx, gameId, player._id, "jail", `${player.name} rolled doubles — out of Jail!`);
       const moved = moveBySteps(player, sum);
@@ -731,14 +732,22 @@ export const jailAction = mutation({
       const freshPlayer = freshPlayers.find((p: any) => p._id === player._id)!;
       const res = await resolveLanding(ctx, game, freshPlayer, freshPlayers, moved.position, sum);
       if (res.phase === "debt") {
-        await ctx.db.patch(gameId, { phase: "debt", phaseData: res.phaseData });
+        await ctx.db.patch(gameId, { phase: "debt", phaseData: res.phaseData, doublesCount: jailEscapeDoublesCount });
         return;
       }
       if (res.phase === "buy") {
-        await ctx.db.patch(gameId, { phase: "buy", phaseData: res.phaseData });
+        await ctx.db.patch(gameId, { phase: "buy", phaseData: res.phaseData, doublesCount: jailEscapeDoublesCount });
         return;
       }
-      await ctx.db.patch(gameId, { phase: "manage", phaseData: {}, doublesCount: 0 });
+      if (res.advance || res.endTurn) {
+        const next = nextAliveSeat(players, game.turn);
+        const nextPhase = players[next].inJail ? "jail" : "roll";
+        await ctx.db.patch(gameId, { turn: next, phase: nextPhase, phaseData: {}, doublesCount: 0 });
+        await maybeNotifyTurn(ctx, gameId);
+        await log(ctx, gameId, null, "turn", `It's ${players[next].name}'s turn.`);
+        return;
+      }
+      await ctx.db.patch(gameId, { phase: "roll", phaseData: {}, doublesCount: jailEscapeDoublesCount });
       return;
     }
     // not doubles
@@ -921,7 +930,7 @@ async function settleAuctionIfDone(ctx: any, gameId: any, game: any, state: Auct
   } else {
     await log(ctx, gameId, null, "auction", "No one bid — property stays with the bank.");
   }
-  await ctx.db.patch(gameId, { phase: "manage", phaseData: {} });
+  await ctx.db.patch(gameId, { phase: game.doublesCount > 0 ? "roll" : "manage", phaseData: {} });
 }
 
 export const casinoAction = mutation({
