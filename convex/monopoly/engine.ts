@@ -28,6 +28,7 @@ export interface EnginePlayer {
   position: number;
   inJail: boolean;
   jailTurns: number;
+  jailVisits?: number;
   getOutOfJailCards: number;
   bankrupt: boolean;
   properties: number[];
@@ -52,7 +53,7 @@ export function moveBySteps(player: EnginePlayer, steps: number): { position: nu
   let salary = 0;
   let pos = player.position + steps;
   if (pos >= 40) {
-    salary = GO_SALARY;
+    if (!player.inJail) salary = GO_SALARY;
     pos = pos % 40;
   }
   return { position: pos, salary };
@@ -65,7 +66,7 @@ export function moveToSpace(
   collectOnPass: boolean,
 ): { position: number; salary: number } {
   let salary = 0;
-  if (collectOnPass && target < player.position) {
+  if (collectOnPass && target < player.position && !player.inJail) {
     salary = GO_SALARY;
   }
   return { position: target, salary };
@@ -85,6 +86,9 @@ export function computeRent(
   multiplier = 1,
 ): RentInfo {
   const space = getSpace(spaceIndex);
+  if (owner.inJail) {
+    return { amount: 0, breakdown: "Owner in Jail — no rent" };
+  }
   if (owner.mortgaged.includes(spaceIndex)) {
     return { amount: 0, breakdown: "Mortgaged — no rent" };
   }
@@ -199,6 +203,10 @@ export function jailStatus(player: EnginePlayer): string | null {
   if (!player.inJail) return null;
   if (player.jailTurns >= MAX_JAIL_TURNS) return "mustPay";
   return "options";
+}
+
+export function jailBailAmount(player: Pick<EnginePlayer, "jailVisits">): number {
+  return JAIL_BAIL * Math.max(1, player.jailVisits ?? 1);
 }
 
 export const JAIL_BAIL_AMOUNT = JAIL_BAIL;

@@ -43,6 +43,7 @@ export default defineSchema({
     position: v.number(),
     inJail: v.boolean(),
     jailTurns: v.number(),
+    jailVisits: v.optional(v.number()),
     getOutOfJailCards: v.number(),
     bankrupt: v.boolean(),
     properties: v.array(v.number()),
