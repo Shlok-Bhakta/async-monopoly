@@ -5,6 +5,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   getSpace,
+  isOnPropertySet,
   STARTING_MONEY,
   HOUSE_SUPPLY,
   HOTEL_SUPPLY,
@@ -1012,12 +1013,15 @@ export const buildHouse = mutation({
     if (game.phase !== "manage") throw new Error("You can only build during your turn");
     const turnPlayer = players[game.turn];
     if (turnPlayer._id !== player._id) throw new Error("Not your turn");
+    const spaceInfo = getSpace(space);
+    if (spaceInfo.type === "property" && !isOnPropertySet(player.position, space)) {
+      throw new Error("Land on a property in this color set before building");
+    }
     const houseSupply = HOUSE_SUPPLY - players.reduce((s, p: any) => s + totalHouses(p), 0);
     const hotelSupply = HOTEL_SUPPLY - players.reduce((s, p: any) => s + totalHotels(p), 0);
     const err = canBuild(player as any, space, houseSupply, hotelSupply);
     if (err) throw new Error(err);
     const fresh = (await ctx.db.get(player._id))!;
-    const spaceInfo = getSpace(space);
     const nextCount = houseCount(fresh as any, space) + 1;
     const houses = [...fresh.houses.filter((h: any) => h.space !== space), { space, count: nextCount }];
     await ctx.db.patch(player._id, { houses, money: fresh.money - (spaceInfo.houseCost ?? 0) });
