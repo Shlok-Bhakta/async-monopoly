@@ -6,10 +6,10 @@ import schema from "../convex/schema";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 
-function chanceRandom(text: string): number {
+function chanceCardIndex(text: string): number {
   const index = CHANCE_DECK.findIndex((card) => card.text === text);
   if (index < 0) throw new Error(`Chance card not found: ${text}`);
-  return (index + 0.5) / CHANCE_DECK.length;
+  return index;
 }
 
 async function gameWithJailedOwner() {
@@ -95,11 +95,13 @@ describe("jail income", () => {
     await t.run(async (ctx) => {
       await ctx.db.patch(alicePlayerId, { position: 5 });
       await ctx.db.patch(bobPlayerId, { properties: [15] });
+      await ctx.db.patch(gameId, {
+        chanceDeck: [chanceCardIndex("Advance to the nearest Railroad. If unowned, you may buy it from the Bank. If owned, pay owner twice the rental to which they are otherwise entitled.")],
+      });
     });
     vi.spyOn(Math, "random")
       .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(chanceRandom("Advance to the nearest Railroad. If unowned, you may buy it from the Bank. If owned, pay owner twice the rental to which they are otherwise entitled."));
+      .mockReturnValueOnce(0);
 
     await asAlice.mutation(api.game.roll, { gameId });
 
@@ -113,11 +115,15 @@ describe("jail income", () => {
 
   it("does not pay card income to another player who is in jail", async () => {
     const { t, asAlice, gameId, alicePlayerId, bobPlayerId } = await gameWithJailedOwner();
-    await t.run((ctx) => ctx.db.patch(alicePlayerId, { position: 5 }));
+    await t.run(async (ctx) => {
+      await ctx.db.patch(alicePlayerId, { position: 5 });
+      await ctx.db.patch(gameId, {
+        chanceDeck: [chanceCardIndex("You have been elected Chairman of the Board. Pay each player $50.")],
+      });
+    });
     vi.spyOn(Math, "random")
       .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(chanceRandom("You have been elected Chairman of the Board. Pay each player $50."));
+      .mockReturnValueOnce(0);
 
     await asAlice.mutation(api.game.roll, { gameId });
 
@@ -224,21 +230,24 @@ describe("repeat-visit bail", () => {
     expect((await t.run((ctx) => ctx.db.get(alicePlayerId)))?.money).toBe(850);
   });
 
-  it("counts visits caused by Go to Jail cards", async () => {
-    const random = vi.spyOn(Math, "random");
+  it("counts a Go to Jail card toward repeat-visit bail", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
     const { t, asAlice, gameId, alicePlayerId } = await gameWithJailedOwner();
 
-    await t.run((ctx) => ctx.db.patch(alicePlayerId, { position: 5 }));
-    random.mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValueOnce(chanceRandom("Go to Jail. Go directly to Jail. Do not pass GO, do not collect $200."));
+    await t.run((ctx) => ctx.db.patch(alicePlayerId, { position: 28 }));
     await asAlice.mutation(api.game.roll, { gameId });
     await t.run((ctx) => ctx.db.patch(gameId, { turn: 0, phase: "jail" }));
     await asAlice.mutation(api.game.jailAction, { gameId, action: "pay" });
 
     await t.run(async (ctx) => {
       await ctx.db.patch(alicePlayerId, { position: 5 });
-      await ctx.db.patch(gameId, { turn: 0, phase: "roll", doublesCount: 0 });
+      await ctx.db.patch(gameId, {
+        turn: 0,
+        phase: "roll",
+        doublesCount: 0,
+        chanceDeck: [chanceCardIndex("Go to Jail. Go directly to Jail. Do not pass GO, do not collect $200.")],
+      });
     });
-    random.mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValueOnce(chanceRandom("Go to Jail. Go directly to Jail. Do not pass GO, do not collect $200."));
     await asAlice.mutation(api.game.roll, { gameId });
     await t.run((ctx) => ctx.db.patch(gameId, { turn: 0, phase: "jail" }));
     await asAlice.mutation(api.game.jailAction, { gameId, action: "pay" });

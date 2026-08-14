@@ -28,7 +28,7 @@ import {
   jailBailAmount,
   moveStockValue,
 } from "./monopoly/engine";
-import { CHANCE_DECK, COMMUNITY_CHEST_DECK, shuffleDeck } from "./monopoly/cards";
+import { CHANCE_DECK, COMMUNITY_CHEST_DECK, drawCard, shuffleDeck } from "./monopoly/cards";
 import {
   bid as auctionBidAction,
   pass as auctionPassAction,
@@ -395,9 +395,17 @@ async function resolveLanding(
     };
   }
   if (space.type === "chance" || space.type === "communityChest") {
-    const deck = space.type === "chance" ? CHANCE_DECK : COMMUNITY_CHEST_DECK;
-    const card = deck[Math.floor(Math.random() * deck.length)];
-    return resolveCard(ctx, game, player, players, card, diceSum, spaceIndex);
+    const isChance = space.type === "chance";
+    const deck = isChance ? CHANCE_DECK : COMMUNITY_CHEST_DECK;
+    const draw = drawCard(
+      deck.length,
+      (isChance ? game.chanceDeck : game.communityChestDeck) ?? [],
+      isChance ? game.lastChanceCard : game.lastCommunityChestCard,
+    );
+    await ctx.db.patch(game._id, isChance
+      ? { chanceDeck: draw.remaining, lastChanceCard: draw.cardIndex }
+      : { communityChestDeck: draw.remaining, lastCommunityChestCard: draw.cardIndex });
+    return resolveCard(ctx, game, player, players, deck[draw.cardIndex], diceSum, spaceIndex);
   }
   if (space.type === "property" || space.type === "railroad" || space.type === "utility") {
     const owner = players.find((p: any) => p.properties.includes(spaceIndex) && !p.bankrupt);

@@ -7,10 +7,10 @@ import schema from "../convex/schema";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 
-function randomForCard(deck: typeof CHANCE_DECK, text: string): number {
+function cardIndex(deck: typeof CHANCE_DECK, text: string): number {
   const index = deck.findIndex((card) => card.text === text);
   if (index < 0) throw new Error(`Card not found: ${text}`);
-  return (index + 0.5) / deck.length;
+  return index;
 }
 
 async function gameApproachingStockMarket() {
@@ -115,11 +115,13 @@ describe("Stock Market event cards", () => {
         stockInvestment: 200,
         stockValue: 150,
       });
+      await ctx.db.patch(gameId, {
+        chanceDeck: [cardIndex(CHANCE_DECK, "The market surges! Every investment gains 25% of its principal.")],
+      });
     });
     vi.spyOn(Math, "random")
       .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0.2)
-      .mockReturnValueOnce(randomForCard(CHANCE_DECK, "The market surges! Every investment gains 25% of its principal."));
+      .mockReturnValueOnce(0.2);
 
     await asAlice.mutation(api.game.roll, { gameId });
 
@@ -145,11 +147,13 @@ describe("Stock Market event cards", () => {
         stockInvestment: 800,
         stockValue: 50,
       });
+      await ctx.db.patch(gameId, {
+        communityChestDeck: [cardIndex(COMMUNITY_CHEST_DECK, "The market slumps. Every investment loses 25% of its principal.")],
+      });
     });
     vi.spyOn(Math, "random")
       .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0.2)
-      .mockReturnValueOnce(randomForCard(COMMUNITY_CHEST_DECK, "The market slumps. Every investment loses 25% of its principal."));
+      .mockReturnValueOnce(0.2);
 
     await asAlice.mutation(api.game.roll, { gameId });
 
