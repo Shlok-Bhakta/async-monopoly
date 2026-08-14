@@ -49,6 +49,8 @@ export default defineSchema({
     properties: v.array(v.number()),
     houses: v.array(v.object({ space: v.number(), count: v.number() })),
     mortgaged: v.array(v.number()),
+    stockInvestment: v.optional(v.number()),
+    stockValue: v.optional(v.number()),
     joinedAt: v.number(),
   })
     .index("by_game", ["gameId"])

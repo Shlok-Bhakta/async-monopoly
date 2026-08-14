@@ -25,6 +25,7 @@ import {
   canBuild,
   liquidateHouses,
   jailBailAmount,
+  moveStockValue,
 } from "./monopoly/engine";
 import { CHANCE_DECK, COMMUNITY_CHEST_DECK } from "./monopoly/cards";
 import {
@@ -219,6 +220,8 @@ export const createGame = mutation({
       properties: [],
       houses: [],
       mortgaged: [],
+      stockInvestment: 0,
+      stockValue: 0,
       joinedAt: now(),
     });
     await log(ctx, gameId, null, "lobby", "Game created — share code to friends");
@@ -254,6 +257,8 @@ export const joinGame = mutation({
       properties: [],
       houses: [],
       mortgaged: [],
+      stockInvestment: 0,
+      stockValue: 0,
       joinedAt: now(),
     });
     await ctx.db.patch(game._id, { lastActionAt: now() });
@@ -374,6 +379,18 @@ async function resolveLanding(
       advance: false,
     };
   }
+  if (space.type === "stockMarket") {
+    await log(ctx, game._id, player._id, "stockMarket", `${name} landed on the Stock Market.`);
+    return {
+      phase: "stockMarket",
+      phaseData: {
+        investment: player.stockInvestment ?? 0,
+        value: player.stockValue ?? 0,
+      },
+      endTurn: false,
+      advance: false,
+    };
+  }
   if (space.type === "chance" || space.type === "communityChest") {
     const deck = space.type === "chance" ? CHANCE_DECK : COMMUNITY_CHEST_DECK;
     const card = deck[Math.floor(Math.random() * deck.length)];
@@ -456,6 +473,23 @@ async function resolveCard(
   if (e.type === "jailFree") {
     await ctx.db.patch(player._id, { getOutOfJailCards: player.getOutOfJailCards + 1 });
     await log(ctx, game._id, player._id, "card", `${name} kept a Get Out of Jail Free card.`);
+    return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
+  }
+  if (e.type === "marketMove") {
+    for (const candidate of players) {
+      const investment = candidate.stockInvestment ?? 0;
+      if (investment <= 0) continue;
+      await ctx.db.patch(candidate._id, {
+        stockValue: moveStockValue(investment, candidate.stockValue ?? investment, e.percent),
+      });
+    }
+    await log(
+      ctx,
+      game._id,
+      player._id,
+      "stockMarket",
+      `The Stock Market moved ${e.percent > 0 ? "up" : "down"} ${Math.abs(e.percent)}% of every investment's principal.`,
+    );
     return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
   }
   if (e.type === "repairs") {
@@ -595,6 +629,10 @@ export const roll = mutation({
     }
     if (res.phase === "buy") {
       await ctx.db.patch(gameId, { phase: "buy", phaseData: res.phaseData, doublesCount: newDoublesCount });
+      return;
+    }
+    if (res.phase === "stockMarket") {
+      await ctx.db.patch(gameId, { phase: "stockMarket", phaseData: res.phaseData, doublesCount: newDoublesCount });
       return;
     }
     // manage or end-of-turn
@@ -893,6 +931,51 @@ export const casinoAction = mutation({
       await log(ctx, gameId, player._id, "casino", `${player.name} bet ${action === "over" ? "OVER" : "UNDER"} 7 — rolled ${d1}+${d2}=${sum}${payout > 0 ? `, wins $${payout}!` : ". House wins."}`);
     }
     await ctx.db.patch(gameId, { phase: "manage", phaseData: {}, lastActionAt: now() });
+  },
+});
+
+export const stockMarketAction = mutation({
+  args: {
+    gameId: v.id("games"),
+    action: v.union(v.literal("invest"), v.literal("cashOut"), v.literal("pass")),
+    amount: v.optional(v.number()),
+  },
+  handler: async (ctx, { gameId, action, amount }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not signed in");
+    const { game, player, players } = await requirePlayer(ctx, gameId, userId);
+    if (game.status !== "playing") throw new Error("Game not in progress");
+    if (game.phase !== "stockMarket") throw new Error("Not at the Stock Market right now");
+    if (players[game.turn]._id !== player._id) throw new Error("Not your turn");
+    const nextPhase = game.doublesCount > 0 ? "roll" : "manage";
+    if (action === "pass") {
+      await ctx.db.patch(gameId, { phase: nextPhase, phaseData: {}, lastActionAt: now() });
+      await log(ctx, gameId, player._id, "stockMarket", `${player.name} passed on the Stock Market.`);
+      return;
+    }
+    if (action === "cashOut") {
+      const value = player.stockValue ?? 0;
+      if ((player.stockInvestment ?? 0) <= 0) throw new Error("You do not have a Stock Market investment");
+      await ctx.db.patch(player._id, {
+        money: player.money + value,
+        stockInvestment: 0,
+        stockValue: 0,
+      });
+      await ctx.db.patch(gameId, { phase: nextPhase, phaseData: {}, lastActionAt: now() });
+      await log(ctx, gameId, player._id, "stockMarket", `${player.name} cashed out $${value} from the Stock Market.`);
+      return;
+    }
+
+    if (!Number.isInteger(amount) || amount === undefined || amount <= 0) throw new Error("Investment must be a positive whole-dollar amount");
+    if (amount > player.money) throw new Error("Investment cannot exceed cash on hand");
+
+    await ctx.db.patch(player._id, {
+      money: player.money - amount,
+      stockInvestment: (player.stockInvestment ?? 0) + amount,
+      stockValue: (player.stockValue ?? 0) + amount,
+    });
+    await ctx.db.patch(gameId, { phase: nextPhase, phaseData: {}, lastActionAt: now() });
+    await log(ctx, gameId, player._id, "stockMarket", `${player.name} invested $${amount} in the Stock Market.`);
   },
 });
 

@@ -21,6 +21,11 @@ export function isDoubles(dice: number[]): boolean {
   return dice[0] === dice[1];
 }
 
+export function moveStockValue(investment: number, currentValue: number, percent: number): number {
+  const change = Math.round(investment * percent / 100);
+  return Math.max(0, currentValue + change);
+}
+
 // Player shape used by the engine (subset of the Convex players doc).
 export interface EnginePlayer {
   _id: string;

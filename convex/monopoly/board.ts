@@ -11,7 +11,8 @@ export type SpaceType =
   | "jail"
   | "goToJail"
   | "freeParking"
-  | "casino";
+  | "casino"
+  | "stockMarket";
 
 export interface Space {
   index: number;
@@ -80,7 +81,7 @@ export const SPACES: Space[] = [
   { index: 35, name: "Short Line Railroad", type: "railroad", price: 200, mortgage: 100 },
   { index: 36, name: "Chance", type: "chance" },
   { index: 37, name: "Park Place", type: "property", group: "darkblue", price: 350, rents: [35, 175, 500, 1100, 1300, 1500], houseCost: 200, mortgage: 175 },
-  { index: 38, name: "Luxury Tax", type: "tax", tax: 100 },
+  { index: 38, name: "Stock Market", type: "stockMarket" },
   { index: 39, name: "Boardwalk", type: "property", group: "darkblue", price: 400, rents: [50, 200, 600, 1400, 1700, 2000], houseCost: 200, mortgage: 200 },
 ];
 

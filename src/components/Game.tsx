@@ -34,6 +34,7 @@ export function Game() {
   const auctionBid = useMutation(api.game.auctionBid);
   const auctionPass = useMutation(api.game.auctionPass);
   const casinoAction = useMutation(api.game.casinoAction);
+  const stockMarketAction = useMutation(api.game.stockMarketAction);
   const respondTrade = useMutation(api.game.respondTrade);
   const cancelTrade = useMutation(api.game.cancelTrade);
 
@@ -74,6 +75,12 @@ export function Game() {
         return { kind: "buy" as const, space: p.space as number };
       case "casino":
         return { kind: "casino" as const };
+      case "stockMarket":
+        return {
+          kind: "stockMarket" as const,
+          investment: p.investment as number,
+          value: p.value as number,
+        };
       case "debt":
         return { kind: "debt" as const, amount: p.amount as number, reason: p.reason as string };
       case "manage":
@@ -163,6 +170,11 @@ export function Game() {
             onBid={(amount: number) => run(() => auctionBid({ gameId: data.game._id, amount }))}
             onPass={() => run(() => auctionPass({ gameId: data.game._id }))}
             onCasino={(action: string) => run(() => casinoAction({ gameId: data.game._id, action: action as any }))}
+            onStockMarket={(action: string, amount?: number) => run(() => stockMarketAction({
+              gameId: data.game._id,
+              action: action as any,
+              amount,
+            }))}
             onOpenTrade={() => setTradeOpen(true)}
           />
 
@@ -322,6 +334,15 @@ export function ActionBar(props: any) {
         </div>
       );
     }
+    case "stockMarket":
+      return (
+        <StockMarketBar
+          investment={myAction.investment}
+          value={myAction.value}
+          cash={me?.money ?? 0}
+          onAction={props.onStockMarket}
+        />
+      );
     case "debt":
       return (
         <div className="action-bar action-debt">
@@ -348,6 +369,37 @@ export function ActionBar(props: any) {
     default:
       return null;
   }
+}
+
+function StockMarketBar({ investment, value, cash, onAction }: any) {
+  const [amount, setAmount] = useState(Math.min(100, cash));
+  const hasInvestment = investment > 0;
+  return (
+    <div className="action-bar action-stock-market">
+      <div className="action-grip" />
+      <div className="action-status">
+        📈 Stock Market — {hasInvestment
+          ? `${fmtMoney(investment)} invested, now worth ${fmtMoney(value)}`
+          : "choose any whole-dollar amount to invest"}
+      </div>
+      <div className="action-buttons">
+        <input
+          type="number"
+          aria-label="Investment amount"
+          min={1}
+          max={cash}
+          step={1}
+          value={amount}
+          onChange={(event) => setAmount(Number(event.target.value))}
+        />
+        <button className="btn-gold" disabled={cash < 1 || amount < 1 || amount > cash} onClick={() => onAction("invest", amount)}>
+          {hasInvestment ? "Invest more" : "Invest"}
+        </button>
+        {hasInvestment && <button className="btn-primary" onClick={() => onAction("cashOut")}>Cash out {fmtMoney(value)}</button>}
+        <button className="btn-ghost" onClick={() => onAction("pass")}>Skip</button>
+      </div>
+    </div>
+  );
 }
 
 function AuctionBar({ auction, players, isMyBid, currentBid, onBid, onPass }: any) {
@@ -408,6 +460,7 @@ function PlayerPanel({ players, currentId, meId }: any) {
           <span className="player-name">{p.name}</span>
           {p.inJail && !p.bankrupt && <span className="player-badge">Jail</span>}
           {p.bankrupt && <span className="player-badge">Out</span>}
+          {(p.stockInvestment ?? 0) > 0 && <span className="player-badge">Market {fmtMoney(p.stockValue ?? 0)}</span>}
           <span className="player-cash">{fmtMoney(p.money)}</span>
         </div>
       ))}

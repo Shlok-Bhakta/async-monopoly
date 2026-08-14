@@ -11,7 +11,8 @@ export type CardEffect =
   | { type: "collectFromEach"; amount: number }
   | { type: "nearestUtility" }
   | { type: "nearestRailroad" }
-  | { type: "moveRelative"; spaces: number };
+  | { type: "moveRelative"; spaces: number }
+  | { type: "marketMove"; percent: number };
 
 export interface Card {
   text: string;
@@ -34,7 +35,7 @@ export const CHANCE_DECK: Card[] = [
   { text: "You have been elected Chairman of the Board. Pay each player $50.", effect: { type: "payEachPlayer", amount: 50 } },
   { text: "Your building loan matures. Collect $150.", effect: { type: "collect", amount: 150 } },
   { text: "You have won a crossword competition. Collect $100.", effect: { type: "collect", amount: 100 } },
-  { text: "Advance to the nearest Railroad. If unowned, you may buy it from the Bank. If owned, pay owner twice the rental to which they are otherwise entitled.", effect: { type: "nearestRailroad" } },
+  { text: "The market surges! Every investment gains 25% of its principal.", effect: { type: "marketMove", percent: 25 } },
 ];
 
 export const COMMUNITY_CHEST_DECK: Card[] = [
@@ -53,5 +54,5 @@ export const COMMUNITY_CHEST_DECK: Card[] = [
   { text: "Receive $25 consultancy fee.", effect: { type: "collect", amount: 25 } },
   { text: "You are assessed for street repairs: pay $40 for each house and $115 for each hotel.", effect: { type: "repairs", perHouse: 40, perHotel: 115 } },
   { text: "You have won second prize in a beauty contest. Collect $10.", effect: { type: "collect", amount: 10 } },
-  { text: "Get Out of Jail Free. This card may be kept until needed or sold.", effect: { type: "jailFree" } },
+  { text: "The market slumps. Every investment loses 25% of its principal.", effect: { type: "marketMove", percent: -25 } },
 ];
