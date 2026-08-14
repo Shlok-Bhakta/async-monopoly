@@ -7,6 +7,7 @@ function owner(overrides: Record<string, unknown> = {}) {
     _id: "player-1",
     name: "Alice",
     money: 1_000,
+    position: 0,
     properties: [5, 12],
     houses: [],
     mortgaged: [],
@@ -52,5 +53,27 @@ describe("PropertyModal mortgage actions", () => {
     const html = renderProperty(5, "gameOver", owner(), "finished");
 
     expect(html).not.toContain("Mortgage (get $100)");
+  });
+});
+
+describe("PropertyModal house-building actions", () => {
+  it("hides building and explains why when the player is off the property's color set", () => {
+    const html = renderProperty(1, "manage", owner({
+      position: 6,
+      properties: [1, 3],
+    }));
+
+    expect(html).not.toContain("Build house ($50)");
+    expect(html).toContain("Land on any property in this color set to build here.");
+  });
+
+  it("offers the unchanged price while the player is on another property in the color set", () => {
+    const html = renderProperty(1, "manage", owner({
+      position: 3,
+      properties: [1, 3],
+    }));
+
+    expect(html).toContain("Build house ($50)");
+    expect(html).not.toContain("Land on any property in this color set to build here.");
   });
 });

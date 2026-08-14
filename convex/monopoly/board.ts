@@ -100,6 +100,12 @@ export function getSpace(index: number): Space {
   return SPACES[((index % 40) + 40) % 40];
 }
 
+export function isOnPropertySet(position: number, targetSpace: number): boolean {
+  const landed = getSpace(position);
+  const target = getSpace(targetSpace);
+  return landed.type === "property" && target.type === "property" && landed.group === target.group;
+}
+
 export function groupSpaces(groupId: string): Space[] {
   return SPACES.filter((s) => s.group === groupId);
 }

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { getSpace } from "../../convex/monopoly/board";
+import { getSpace, isOnPropertySet } from "../../convex/monopoly/board";
 import { MIN_BID_INCREMENT_PERCENT } from "../../convex/monopoly/auction";
 import { fmtMoney, GROUP_COLORS } from "../lib/game";
 import { Board } from "./Board";
@@ -462,6 +462,8 @@ export function PropertyModal({ space, players, me, myTurn, gameStatus, phase, h
   const myHouseCount = mine ? (me.houses.find((h: any) => h.space === space)?.count ?? 0) : 0;
   const mortgaged = owner?.mortgaged?.includes(space);
   const canManage = myTurn && (phase === "manage" || phase === "debt");
+  const canAddBuilding = myHouseCount < 5 && !mortgaged;
+  const onBuildableSet = Boolean(me && isOnPropertySet(me.position, space));
   const canMortgage = gameStatus === "playing" && myTurn && !mortgaged && myHouseCount === 0 && s.mortgage !== undefined;
   const canUnmortgage = canManage && mortgaged && s.mortgage !== undefined;
 
@@ -516,7 +518,10 @@ export function PropertyModal({ space, players, me, myTurn, gameStatus, phase, h
               You have {myHouseCount === 5 ? "a hotel" : `${myHouseCount} house${myHouseCount === 1 ? "" : "s"}`} here.
               Bank: {houseSupply} houses / {hotelSupply} hotels left.
             </div>
-            {myHouseCount < 5 && !mortgaged && (
+            {canAddBuilding && !onBuildableSet && (
+              <div className="muted tiny">Land on any property in this color set to build here.</div>
+            )}
+            {canAddBuilding && onBuildableSet && (
               <button className="btn-primary" onClick={onBuild}>Build {myHouseCount === 4 ? "hotel" : "house"} ({fmtMoney(s.houseCost ?? 0)})</button>
             )}
             {myHouseCount > 0 && <button className="btn-ghost" onClick={onSellHouse}>Sell house (get {fmtMoney(Math.floor((s.houseCost ?? 0) / 2))})</button>}
