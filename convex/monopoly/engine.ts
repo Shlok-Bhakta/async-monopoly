@@ -52,6 +52,10 @@ export function totalHouses(player: EnginePlayer): number {
   return player.houses.reduce((sum, h) => sum + h.count, 0);
 }
 
+export function totalPhysicalHouses(player: EnginePlayer): number {
+  return player.houses.reduce((sum, h) => sum + (h.count === 5 ? 0 : h.count), 0);
+}
+
 export function totalHotels(player: EnginePlayer): number {
   return player.houses.filter((h) => h.count === 5).length;
 }

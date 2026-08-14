@@ -21,6 +21,7 @@ import {
   nextAliveSeat,
   houseCount,
   totalHouses,
+  totalPhysicalHouses,
   totalHotels,
   canBuild,
   liquidateHouses,
@@ -492,8 +493,26 @@ async function resolveCard(
     );
     return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
   }
+  if (e.type === "buildingWindfall") {
+    const houses = totalPhysicalHouses(player);
+    const hotels = totalHotels(player);
+    const amount = houses * e.perHouse + hotels * e.perHotel;
+    if (amount === 0) {
+      await log(ctx, game._id, player._id, "money", `${name} owns no buildings — no windfall awarded.`);
+      return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
+    }
+    await ctx.db.patch(player._id, { money: player.money + amount });
+    await log(
+      ctx,
+      game._id,
+      player._id,
+      "money",
+      `${name} collected $${amount} from ${houses} house${houses === 1 ? "" : "s"} and ${hotels} hotel${hotels === 1 ? "" : "s"}.`,
+    );
+    return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
+  }
   if (e.type === "repairs") {
-    const houses = totalHouses(player);
+    const houses = totalPhysicalHouses(player);
     const hotels = totalHotels(player);
     const amount = houses * e.perHouse + hotels * e.perHotel;
     if (amount === 0) {
@@ -502,7 +521,13 @@ async function resolveCard(
     }
     if (player.money >= amount) {
       await ctx.db.patch(player._id, { money: player.money - amount });
-      await log(ctx, game._id, player._id, "money", `${name} paid $${amount} in repairs (${houses} houses, ${hotels} hotels).`);
+      await log(
+        ctx,
+        game._id,
+        player._id,
+        "money",
+        `${name} paid $${amount} in repairs (${houses} house${houses === 1 ? "" : "s"}, ${hotels} hotel${hotels === 1 ? "" : "s"}).`,
+      );
       return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
     }
     return {

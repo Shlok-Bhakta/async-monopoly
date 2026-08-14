@@ -1,9 +1,16 @@
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
+import { CHANCE_DECK } from "../convex/monopoly/cards";
 import schema from "../convex/schema";
 
 const modules = import.meta.glob("../convex/**/*.ts");
+
+function chanceRandom(text: string): number {
+  const index = CHANCE_DECK.findIndex((card) => card.text === text);
+  if (index < 0) throw new Error(`Chance card not found: ${text}`);
+  return (index + 0.5) / CHANCE_DECK.length;
+}
 
 async function gameWithJailedOwner() {
   const t = convexTest(schema, modules);
@@ -92,7 +99,7 @@ describe("jail income", () => {
     vi.spyOn(Math, "random")
       .mockReturnValueOnce(0)
       .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0.3); // Chance index 4: nearest railroad with double rent.
+      .mockReturnValueOnce(chanceRandom("Advance to the nearest Railroad. If unowned, you may buy it from the Bank. If owned, pay owner twice the rental to which they are otherwise entitled."));
 
     await asAlice.mutation(api.game.roll, { gameId });
 
@@ -110,7 +117,7 @@ describe("jail income", () => {
     vi.spyOn(Math, "random")
       .mockReturnValueOnce(0)
       .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0.78); // Chance index 12: pay each player $50.
+      .mockReturnValueOnce(chanceRandom("You have been elected Chairman of the Board. Pay each player $50."));
 
     await asAlice.mutation(api.game.roll, { gameId });
 
@@ -222,7 +229,7 @@ describe("repeat-visit bail", () => {
     const { t, asAlice, gameId, alicePlayerId } = await gameWithJailedOwner();
 
     await t.run((ctx) => ctx.db.patch(alicePlayerId, { position: 5 }));
-    random.mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValueOnce(0.4);
+    random.mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValueOnce(chanceRandom("Go to Jail. Go directly to Jail. Do not pass GO, do not collect $200."));
     await asAlice.mutation(api.game.roll, { gameId });
     await t.run((ctx) => ctx.db.patch(gameId, { turn: 0, phase: "jail" }));
     await asAlice.mutation(api.game.jailAction, { gameId, action: "pay" });
@@ -231,7 +238,7 @@ describe("repeat-visit bail", () => {
       await ctx.db.patch(alicePlayerId, { position: 5 });
       await ctx.db.patch(gameId, { turn: 0, phase: "roll", doublesCount: 0 });
     });
-    random.mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValueOnce(0.4);
+    random.mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValueOnce(chanceRandom("Go to Jail. Go directly to Jail. Do not pass GO, do not collect $200."));
     await asAlice.mutation(api.game.roll, { gameId });
     await t.run((ctx) => ctx.db.patch(gameId, { turn: 0, phase: "jail" }));
     await asAlice.mutation(api.game.jailAction, { gameId, action: "pay" });
