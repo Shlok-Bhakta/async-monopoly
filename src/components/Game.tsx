@@ -4,6 +4,7 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { getSpace, isOnPropertySet } from "../../convex/monopoly/board";
 import { MIN_BID_INCREMENT_PERCENT } from "../../convex/monopoly/auction";
+import { jailBailAmount } from "../../convex/monopoly/engine";
 import { fmtMoney, GROUP_COLORS } from "../lib/game";
 import { Board } from "./Board";
 import { PropertiesPanel } from "./PropertiesPanel";
@@ -226,7 +227,7 @@ export function Game() {
 
 // ---------------------------------------------------------------------------
 
-function ActionBar(props: any) {
+export function ActionBar(props: any) {
   const { myAction, myTurn, me, current, players, game } = props;
   if (game.status === "finished") {
     const winner = players.find((p: any) => p._id === game.winner);
@@ -263,20 +264,22 @@ function ActionBar(props: any) {
           </div>
         </div>
       );
-    case "jail":
+    case "jail": {
+      const bail = jailBailAmount(me);
       return (
         <div className="action-bar action-jail">
           <div className="action-grip" />
           <div className="action-status">🔒 You're in Jail — 3 ways out</div>
           <div className="action-buttons">
             <button className="btn-gold" onClick={() => props.onJail("roll")}>🎲 Roll for doubles</button>
-            <button className="btn-primary" onClick={() => props.onJail("pay")}>💵 Pay $50</button>
+            <button className="btn-primary" onClick={() => props.onJail("pay")}>💵 Pay ${bail}</button>
             <button className="btn-ghost" disabled={me.getOutOfJailCards < 1} onClick={() => props.onJail("card")}>
               🃏 Use card ({me.getOutOfJailCards})
             </button>
           </div>
         </div>
       );
+    }
     case "buy": {
       const space = getSpace(myAction.space);
       return (

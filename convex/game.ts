@@ -24,6 +24,7 @@ import {
   totalHotels,
   canBuild,
   liquidateHouses,
+  jailBailAmount,
 } from "./monopoly/engine";
 import { CHANCE_DECK, COMMUNITY_CHEST_DECK } from "./monopoly/cards";
 import {
@@ -82,6 +83,15 @@ async function requirePlayer(
 
 function moneyById(players: Doc<"players">[]): Record<string, number> {
   return Object.fromEntries(players.map((p) => [p._id, p.money]));
+}
+
+function jailEntryState(player: Pick<Doc<"players">, "jailVisits">) {
+  return {
+    position: 10,
+    inJail: true,
+    jailTurns: 0,
+    jailVisits: (player.jailVisits ?? 0) + 1,
+  };
 }
 
 // Fire a push notification to whoever's turn it is now. Never throws — push
@@ -203,6 +213,7 @@ export const createGame = mutation({
       position: 0,
       inJail: false,
       jailTurns: 0,
+      jailVisits: 0,
       getOutOfJailCards: 0,
       bankrupt: false,
       properties: [],
@@ -237,6 +248,7 @@ export const joinGame = mutation({
       position: 0,
       inJail: false,
       jailTurns: 0,
+      jailVisits: 0,
       getOutOfJailCards: 0,
       bankrupt: false,
       properties: [],
@@ -349,7 +361,7 @@ async function resolveLanding(
     return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
   }
   if (space.type === "goToJail") {
-    await ctx.db.patch(player._id, { position: 10, inJail: true, jailTurns: 0 });
+    await ctx.db.patch(player._id, jailEntryState(player));
     await log(ctx, game._id, player._id, "jail", `${name} went to Jail!`);
     return { phase: "manage", phaseData: {}, endTurn: true, advance: true };
   }
@@ -375,6 +387,10 @@ async function resolveLanding(
     }
     if (owner._id === player._id) {
       await log(ctx, game._id, player._id, "land", `${name} landed on their own ${space.name}.`);
+      return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
+    }
+    if (owner.inJail) {
+      await log(ctx, game._id, player._id, "rent", `${owner.name} is in Jail, so no rent is collected on ${space.name}.`);
       return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
     }
     const rent = computeRent(spaceIndex, owner, diceSum);
@@ -433,7 +449,7 @@ async function resolveCard(
     };
   }
   if (e.type === "goToJail") {
-    await ctx.db.patch(player._id, { position: 10, inJail: true, jailTurns: 0 });
+    await ctx.db.patch(player._id, jailEntryState(player));
     await log(ctx, game._id, player._id, "jail", `${name} went directly to Jail.`);
     return { phase: "manage", phaseData: {}, endTurn: true, advance: true };
   }
@@ -463,7 +479,7 @@ async function resolveCard(
     };
   }
   if (e.type === "payEachPlayer") {
-    const others = players.filter((p: any) => p._id !== player._id && !p.bankrupt);
+    const others = players.filter((p: any) => p._id !== player._id && !p.bankrupt && !p.inJail);
     const total = others.length * e.amount;
     if (player.money >= total) {
       await ctx.db.patch(player._id, { money: player.money - total });
@@ -506,7 +522,7 @@ async function resolveCard(
     if (moved.salary > 0) await log(ctx, game._id, player._id, "money", `${name} passed GO and collected $${moved.salary}.`);
     // If owned, rent is double. resolveLanding computes normal rent, so adjust here:
     const owner = players.find((p: any) => p.properties.includes(target) && !p.bankrupt);
-    if (owner && owner._id !== player._id) {
+    if (owner && owner._id !== player._id && !owner.inJail) {
       const rent = computeRent(target, owner, diceSum, 2);
       if (rent.amount > 0) {
         await log(ctx, game._id, player._id, "rent", `${name} pays double rent $${rent.amount} to ${owner.name}.`);
@@ -553,7 +569,7 @@ export const roll = mutation({
     await log(ctx, gameId, player._id, "roll", `${player.name} rolled ${dice[0]} + ${dice[1]} = ${sum}${doubles ? " (doubles!)" : ""}.`);
 
     if (doubles && newDoublesCount >= 3) {
-      await ctx.db.patch(player._id, { position: 10, inJail: true, jailTurns: 0 });
+      await ctx.db.patch(player._id, jailEntryState(player));
       await ctx.db.patch(gameId, { doublesCount: 0 });
       await log(ctx, gameId, player._id, "jail", `${player.name} rolled doubles 3x in a row — straight to Jail!`);
       const next = nextAliveSeat(players, game.turn);
@@ -611,11 +627,12 @@ export const jailAction = mutation({
     const turnPlayer = players[game.turn];
     if (turnPlayer._id !== player._id) throw new Error("Not your turn");
     if (!player.inJail) throw new Error("You are not in jail");
+    const bail = jailBailAmount(player);
 
     if (action === "pay") {
-      if (player.money < 50) throw new Error("You cannot afford bail — sell or mortgage first");
-      await ctx.db.patch(player._id, { money: player.money - 50, inJail: false, jailTurns: 0 });
-      await log(ctx, gameId, player._id, "jail", `${player.name} paid $50 bail and is free.`);
+      if (player.money < bail) throw new Error("You cannot afford bail — sell or mortgage first");
+      await ctx.db.patch(player._id, { money: player.money - bail, inJail: false, jailTurns: 0 });
+      await log(ctx, gameId, player._id, "jail", `${player.name} paid $${bail} bail and is free.`);
       await ctx.db.patch(gameId, { phase: "roll", phaseData: {} });
       return;
     }
@@ -658,16 +675,16 @@ export const jailAction = mutation({
       if (player.getOutOfJailCards > 0) {
         await ctx.db.patch(player._id, { getOutOfJailCards: player.getOutOfJailCards - 1, inJail: false, jailTurns: 0 });
         await log(ctx, gameId, player._id, "jail", `${player.name} used a Get Out of Jail Free card after 3 turns.`);
-      } else if (player.money >= 50) {
-        await ctx.db.patch(player._id, { money: player.money - 50, inJail: false, jailTurns: 0 });
-        await log(ctx, gameId, player._id, "jail", `${player.name} paid $50 bail after 3 turns.`);
+      } else if (player.money >= bail) {
+        await ctx.db.patch(player._id, { money: player.money - bail, inJail: false, jailTurns: 0 });
+        await log(ctx, gameId, player._id, "jail", `${player.name} paid $${bail} bail after 3 turns.`);
       } else {
         await ctx.db.patch(player._id, { jailTurns: newJailTurns });
         await ctx.db.patch(gameId, {
           phase: "debt",
-          phaseData: { amount: 50, to: "bank", reason: "jail bail", nextPhase: "endTurn", space: 10 },
+          phaseData: { amount: bail, to: "bank", reason: "jail bail", nextPhase: "endTurn", space: 10 },
         });
-        await log(ctx, gameId, player._id, "jail", `${player.name} cannot afford bail — must raise money or go bankrupt.`);
+        await log(ctx, gameId, player._id, "jail", `${player.name} cannot afford $${bail} bail — must raise money or go bankrupt.`);
         return;
       }
     } else {
@@ -908,10 +925,13 @@ export const settleDebt = mutation({
     if (!userId) throw new Error("Not signed in");
     const { game, player, players } = await requirePlayer(ctx, gameId, userId);
     if (game.phase !== "debt") throw new Error("No debt to settle");
-    const { amount, to, nextPhase } = game.phaseData;
+    const { amount, to, nextPhase, reason } = game.phaseData;
     if (player.money < amount) throw new Error("You still don't have enough cash — sell, mortgage, or declare bankruptcy");
     const fresh = (await ctx.db.get(player._id))!;
-    await ctx.db.patch(player._id, { money: fresh.money - amount });
+    await ctx.db.patch(player._id, {
+      money: fresh.money - amount,
+      ...(reason === "jail bail" ? { inJail: false, jailTurns: 0 } : {}),
+    });
     if (to === "bank") {
       await log(ctx, gameId, player._id, "paid", `${player.name} paid the bank $${amount}.`);
     } else if (to === "players") {

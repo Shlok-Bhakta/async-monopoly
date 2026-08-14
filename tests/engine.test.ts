@@ -42,6 +42,10 @@ describe("moveBySteps", () => {
     expect(moveBySteps(player({ position: 39 }), 1)).toEqual({ position: 0, salary: 200 });
   });
 
+  it("does not pay GO salary while the player is in jail", () => {
+    expect(moveBySteps(player({ position: 38, inJail: true }), 4)).toEqual({ position: 2, salary: 0 });
+  });
+
   it("does not pay salary when landing exactly on GO from 0", () => {
     expect(moveBySteps(player({ position: 0 }), 0)).toEqual({ position: 0, salary: 0 });
   });
@@ -52,6 +56,10 @@ describe("moveToSpace", () => {
     expect(moveToSpace(player({ position: 34 }), 2, true)).toEqual({ position: 2, salary: 200 });
     expect(moveToSpace(player({ position: 10 }), 20, true)).toEqual({ position: 20, salary: 0 });
     expect(moveToSpace(player({ position: 30 }), 5, false)).toEqual({ position: 5, salary: 0 });
+  });
+
+  it("does not pay GO salary while the player is in jail", () => {
+    expect(moveToSpace(player({ position: 34, inJail: true }), 2, true)).toEqual({ position: 2, salary: 0 });
   });
 });
 
@@ -89,6 +97,11 @@ describe("computeRent", () => {
   it("charges nothing for a mortgaged property", () => {
     const owner = player({ properties: [1], mortgaged: [1] });
     expect(computeRent(1, owner, 0)).toEqual({ amount: 0, breakdown: "Mortgaged — no rent" });
+  });
+
+  it("charges nothing when the property owner is in jail", () => {
+    const owner = player({ properties: [1], inJail: true });
+    expect(computeRent(1, owner, 0)).toEqual({ amount: 0, breakdown: "Owner in Jail — no rent" });
   });
 
   it("charges railroad rent based on number owned", () => {
