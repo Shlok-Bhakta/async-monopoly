@@ -37,7 +37,9 @@ import {
 } from "./monopoly/auction";
 import {
   CASINO_STAKE,
+  CASINO_CASH_PRIZE,
   canGamble,
+  firstUnownedDeed,
   resolveOverUnder,
   rollReels,
   spinSlots,
@@ -319,8 +321,27 @@ async function resolveLanding(
     return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
   }
   if (space.type === "casino") {
-    await log(ctx, game._id, player._id, "land", `${name} landed on the Casino.`);
-    return { phase: "casino", phaseData: { space: spaceIndex }, endTurn: false, advance: false };
+    const reward = firstUnownedDeed(players.flatMap((candidate: any) => candidate.properties));
+    if (reward) {
+      await ctx.db.patch(player._id, { properties: [...player.properties, reward.index] });
+      await log(
+        ctx,
+        game._id,
+        player._id,
+        "casino",
+        `${name} landed on the Casino and won ${reward.name}, the first unowned property in board order!`,
+      );
+      return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
+    }
+    await ctx.db.patch(player._id, { money: player.money + CASINO_CASH_PRIZE });
+    await log(
+      ctx,
+      game._id,
+      player._id,
+      "casino",
+      `${name} landed on the Casino and won $${CASINO_CASH_PRIZE} because every property is already owned!`,
+    );
+    return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
   }
   if (space.type === "jail") {
     await log(ctx, game._id, player._id, "land", `${name} is just visiting Jail.`);
