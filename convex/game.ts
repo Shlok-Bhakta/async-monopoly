@@ -68,13 +68,14 @@ async function log(ctx: any, gameId: any, playerId: string | null, type: string,
 }
 
 async function deleteGameRecords(ctx: any, gameId: Id<"games">) {
-  const [players, events, trades, auctions] = await Promise.all([
+  const [players, events, chatMessages, trades, auctions] = await Promise.all([
     ctx.db.query("players").withIndex("by_game", (q: any) => q.eq("gameId", gameId)).collect(),
     ctx.db.query("events").withIndex("by_game", (q: any) => q.eq("gameId", gameId)).collect(),
+    ctx.db.query("chatMessages").withIndex("by_game", (q: any) => q.eq("gameId", gameId)).collect(),
     ctx.db.query("trades").withIndex("by_game", (q: any) => q.eq("gameId", gameId)).collect(),
     ctx.db.query("auctions").withIndex("by_game", (q: any) => q.eq("gameId", gameId)).collect(),
   ]);
-  for (const record of [...players, ...events, ...trades, ...auctions]) await ctx.db.delete(record._id);
+  for (const record of [...players, ...events, ...chatMessages, ...trades, ...auctions]) await ctx.db.delete(record._id);
   await ctx.db.delete(gameId);
 }
 
@@ -173,6 +174,9 @@ export const getGame = query({
     const trades = await ctx.db.query("trades").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect();
     const auctions = await ctx.db.query("auctions").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect();
     const auction = auctions.find((a) => a.status === "active") ?? null;
+    const chatMessages = myPlayer
+      ? (await ctx.db.query("chatMessages").withIndex("by_game", (q) => q.eq("gameId", gameId)).order("desc").take(100)).reverse()
+      : [];
     const pendingTrades = trades.filter(
       (t) => t.status === "pending" && (t.fromPlayerId === myPlayer?._id || t.toPlayerId === myPlayer?._id),
     );
@@ -184,6 +188,7 @@ export const getGame = query({
       myPlayerId: myPlayer?._id ?? null,
       events: events.map((e) => ({ ...e, _id: undefined })),
       pendingTrades: pendingTrades.map((t) => ({ ...t })),
+      chatMessages,
       auction: auction ? { ...auction, _id: undefined } : null,
       houseSupply,
       hotelSupply,
@@ -374,6 +379,26 @@ export const deleteGame = mutation({
       throw new Error("A game can only be deleted by its sole human player");
     }
     await deleteGameRecords(ctx, gameId);
+  },
+});
+
+export const sendChatMessage = mutation({
+  args: { gameId: v.id("games"), message: v.string() },
+  handler: async (ctx, { gameId, message }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not signed in");
+    const { game, player } = await requirePlayer(ctx, gameId, userId);
+    if (game.status === "finished") throw new Error("Chat is closed for finished games");
+    const cleanMessage = message.trim();
+    if (!cleanMessage) throw new Error("Message cannot be empty");
+    if (cleanMessage.length > 500) throw new Error("Message cannot exceed 500 characters");
+    await ctx.db.insert("chatMessages", {
+      gameId,
+      playerId: player._id,
+      playerName: player.name,
+      message: cleanMessage,
+      createdAt: now(),
+    });
   },
 });
 

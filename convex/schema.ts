@@ -75,6 +75,15 @@ export default defineSchema({
   })
     .index("by_game", ["gameId", "createdAt"]),
 
+  chatMessages: defineTable({
+    gameId: v.id("games"),
+    playerId: v.id("players"),
+    playerName: v.string(),
+    message: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_game", ["gameId", "createdAt"]),
+
   trades: defineTable({
     gameId: v.id("games"),
     fromPlayerId: v.id("players"),

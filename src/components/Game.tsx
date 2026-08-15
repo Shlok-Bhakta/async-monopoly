@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
@@ -40,6 +40,7 @@ export function Game() {
   const stockMarketAction = useMutation(api.game.stockMarketAction);
   const respondTrade = useMutation(api.game.respondTrade);
   const cancelTrade = useMutation(api.game.cancelTrade);
+  const sendChatMessage = useMutation(api.game.sendChatMessage);
 
   async function run(fn: () => Promise<any>) {
     setError(null);
@@ -255,6 +256,13 @@ export function Game() {
                 <span>⇄</span> Make a trade
               </button>
             </div>
+            <ChatPanel
+              messages={data.chatMessages}
+              meId={data.myPlayerId}
+              disabled={data.game.status === "finished"}
+              onSend={(message: string) => sendChatMessage({ gameId: data.game._id, message })}
+              onError={(message: string) => setError(message)}
+            />
           </div>
 
           <div style={{ width: "100%", maxWidth: 1100 }}>
@@ -538,6 +546,65 @@ function EventLog({ events }: any) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+export function ChatPanel({ messages, meId, disabled = false, onSend, onError }: any) {
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: "nearest" });
+  }, [messages.length]);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const cleanMessage = message.trim();
+    if (!cleanMessage || sending || disabled) return;
+    setSending(true);
+    try {
+      await onSend(cleanMessage);
+      setMessage("");
+    } catch (error: any) {
+      onError(error.message ?? "Could not send message");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="panel chat-panel">
+      <div className="panel-title">Game chat</div>
+      <div className="chat-messages" aria-live="polite">
+        {messages.length === 0 && <div className="empty-panel-copy">No messages yet. Say hello!</div>}
+        {messages.map((chatMessage: any) => (
+          <div key={chatMessage._id} className={`chat-message${chatMessage.playerId === meId ? " is-mine" : ""}`}>
+            <div className="chat-message-meta">
+              <strong>{chatMessage.playerName}</strong>
+              <time dateTime={new Date(chatMessage.createdAt).toISOString()}>
+                {new Date(chatMessage.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </time>
+            </div>
+            <div className="chat-message-text">{chatMessage.message}</div>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+      <form className="chat-compose" onSubmit={submit}>
+        <input
+          aria-label="Chat message"
+          disabled={disabled}
+          maxLength={500}
+          placeholder={disabled ? "Chat is closed" : "Message the other players…"}
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+        />
+        <button className="btn-primary" disabled={disabled || sending || !message.trim()}>
+          {sending ? "Sending…" : "Send"}
+        </button>
+      </form>
     </div>
   );
 }

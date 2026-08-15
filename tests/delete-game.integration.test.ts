@@ -18,6 +18,7 @@ async function soloGameWithBots() {
 describe("deleting solo games with bots", () => {
   it("deletes a started game and every game-owned record", async () => {
     const { t, asAlice, gameId } = await soloGameWithBots();
+    await asAlice.mutation(api.game.sendChatMessage, { gameId, message: "This will be deleted" });
     await t.run(async (ctx) => {
       const players = await ctx.db.query("players").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect();
       await ctx.db.patch(gameId, { status: "playing", phase: "manage", startedAt: 2 });
@@ -49,10 +50,11 @@ describe("deleting solo games with bots", () => {
       game: await ctx.db.get(gameId),
       players: await ctx.db.query("players").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect(),
       events: await ctx.db.query("events").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect(),
+      chatMessages: await ctx.db.query("chatMessages").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect(),
       trades: await ctx.db.query("trades").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect(),
       auctions: await ctx.db.query("auctions").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect(),
     }));
-    expect(remaining).toEqual({ game: null, players: [], events: [], trades: [], auctions: [] });
+    expect(remaining).toEqual({ game: null, players: [], events: [], chatMessages: [], trades: [], auctions: [] });
   });
 
   it("marks a game as deletable when the signed-in player is the only human", async () => {
