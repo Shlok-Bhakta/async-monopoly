@@ -550,7 +550,7 @@ function EventLog({ events }: any) {
   );
 }
 
-export function ChatPanel({ messages, meId, disabled = false, onSend, onError }: any) {
+export function ChatPanel({ messages = [], meId, disabled = false, onSend, onError }: any) {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
