@@ -11,6 +11,7 @@ export function Home() {
   const games = (useQuery(api.game.getMyGames) ?? []).filter((g): g is NonNullable<typeof g> => g !== null);
   const createGame = useMutation(api.game.createGame);
   const joinGame = useMutation(api.game.joinGame);
+  const deleteGame = useMutation(api.game.deleteGame);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +37,20 @@ export function Home() {
     try {
       const id = await joinGame({ code: code.trim() });
       navigate(`/game/${id}`);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDeleteGame(e: React.MouseEvent, gameId: any) {
+    e.stopPropagation();
+    if (!window.confirm("Delete this game and all of its data? This cannot be undone.")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteGame({ gameId });
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -101,7 +116,14 @@ export function Home() {
                   {statusLabel[g.status] ?? g.status}
                 </div>
               </div>
-              <span className="code-pill">{g.code}</span>
+              <div className="game-row-actions">
+                <span className="code-pill">{g.code}</span>
+                {g.canDelete && (
+                  <button className="btn-danger" disabled={busy} onClick={(event) => onDeleteGame(event, g._id)}>
+                    Delete
+                  </button>
+                )}
+              </div>
             </div>
           ))
         )}

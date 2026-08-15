@@ -67,6 +67,17 @@ async function log(ctx: any, gameId: any, playerId: string | null, type: string,
   await ctx.db.insert("events", { gameId, playerId: playerId ?? undefined, type, message, createdAt: now() });
 }
 
+async function deleteGameRecords(ctx: any, gameId: Id<"games">) {
+  const [players, events, trades, auctions] = await Promise.all([
+    ctx.db.query("players").withIndex("by_game", (q: any) => q.eq("gameId", gameId)).collect(),
+    ctx.db.query("events").withIndex("by_game", (q: any) => q.eq("gameId", gameId)).collect(),
+    ctx.db.query("trades").withIndex("by_game", (q: any) => q.eq("gameId", gameId)).collect(),
+    ctx.db.query("auctions").withIndex("by_game", (q: any) => q.eq("gameId", gameId)).collect(),
+  ]);
+  for (const record of [...players, ...events, ...trades, ...auctions]) await ctx.db.delete(record._id);
+  await ctx.db.delete(gameId);
+}
+
 async function requirePlayer(
   ctx: any,
   gameId: Id<"games">,
@@ -129,9 +140,16 @@ export const getMyGames = query({
     const games = await Promise.all(
       myPlayers.map((p) => ctx.db.get(p.gameId)),
     );
-    return games
-      .filter((g) => g && g.status !== "finished")
-      .sort((a, b) => (b?.lastActionAt ?? 0) - (a?.lastActionAt ?? 0));
+    const activeGames = games.filter((game): game is Doc<"games"> => Boolean(game && game.status !== "finished"));
+    const gamesWithPermissions = await Promise.all(activeGames.map(async (game) => {
+      const players = await ctx.db.query("players").withIndex("by_game", (q) => q.eq("gameId", game._id)).collect();
+      const humanPlayers = players.filter((player) => !player.isBot);
+      return {
+        ...game,
+        canDelete: humanPlayers.length === 1 && humanPlayers[0].userId === userId,
+      };
+    }));
+    return gamesWithPermissions.sort((a, b) => b.lastActionAt - a.lastActionAt);
   },
 });
 
@@ -332,13 +350,30 @@ export const leaveGame = mutation({
     if (!player) throw new Error("Not in game");
     await ctx.db.delete(player._id);
     const remaining = await ctx.db.query("players").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect();
+    if (remaining.every((remainingPlayer) => remainingPlayer.isBot)) {
+      await deleteGameRecords(ctx, gameId);
+      return;
+    }
     // reseat so seatIndex stays contiguous
     for (const [i, p] of remaining.sort((a, b) => a.seatIndex - b.seatIndex).entries()) {
       if (p.seatIndex !== i) await ctx.db.patch(p._id, { seatIndex: i, token: TOKENS[i % TOKENS.length] });
     }
-    if (remaining.length === 0) {
-      await ctx.db.delete(gameId);
+  },
+});
+
+export const deleteGame = mutation({
+  args: { gameId: v.id("games") },
+  handler: async (ctx, { gameId }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not signed in");
+    const game = await ctx.db.get(gameId);
+    if (!game) throw new Error("Game not found");
+    const players = await ctx.db.query("players").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect();
+    const humanPlayers = players.filter((player) => !player.isBot);
+    if (humanPlayers.length !== 1 || humanPlayers[0].userId !== userId) {
+      throw new Error("A game can only be deleted by its sole human player");
     }
+    await deleteGameRecords(ctx, gameId);
   },
 });
 
@@ -1546,7 +1581,7 @@ export const sendTrade = mutation({
     if (fromCash < 0 || toCash < 0) throw new Error("Cash amounts must be non-negative");
     if (player.money < fromCash) throw new Error("You don't have that much cash");
     if (target.money < toCash) throw new Error("Target doesn't have that much cash");
-    await ctx.db.insert("trades", {
+    const tradeId = await ctx.db.insert("trades", {
       gameId,
       fromPlayerId: player._id,
       toPlayerId,
@@ -1558,6 +1593,27 @@ export const sendTrade = mutation({
       createdAt: now(),
     });
     await log(ctx, gameId, player._id, "trade", `${player.name} sent a trade offer to ${target.name}.`);
+    if (target.isBot) {
+      const propertyValue = (spaces: number[]) => spaces.reduce((sum, space) => sum + (getSpace(space).price ?? 0), 0);
+      const valueReceivedByBot = fromCash + propertyValue(fromProperties);
+      const valueGivenByBot = toCash + propertyValue(toProperties);
+      if (valueReceivedByBot >= valueGivenByBot) {
+        await ctx.db.patch(player._id, {
+          money: player.money - fromCash + toCash,
+          properties: player.properties.filter((space) => !fromProperties.includes(space)).concat(toProperties),
+        });
+        await ctx.db.patch(target._id, {
+          money: target.money - toCash + fromCash,
+          properties: target.properties.filter((space) => !toProperties.includes(space)).concat(fromProperties),
+        });
+        await ctx.db.patch(tradeId, { status: "accepted", resolvedAt: now() });
+        await log(ctx, gameId, target._id, "trade", `${target.name} accepted ${player.name}'s trade offer.`);
+      } else {
+        await ctx.db.patch(tradeId, { status: "declined", resolvedAt: now() });
+        await log(ctx, gameId, target._id, "trade", `${target.name} declined ${player.name}'s trade offer.`);
+      }
+      return;
+    }
     try {
       await ctx.scheduler.runAfter(0, internal.notify.notifyTrade, {
         gameId,

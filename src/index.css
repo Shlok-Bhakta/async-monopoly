@@ -98,6 +98,8 @@ label { color: #536159; font-size: .82rem; font-weight: 800; }
 .game-row:hover { transform: translateY(-1px); border-color: var(--green); }
 .game-row-name { font-weight: 800; }
 .game-row-meta { color: var(--muted-ink); font-size: .78rem; }
+.game-row-actions { display: flex; align-items: center; gap: 8px; }
+.game-header-actions { display: flex; align-items: center; gap: 8px; }
 .code-pill { display: inline-block; padding: 5px 11px; color: white; background: var(--green); border-radius: 999px; font-family: ui-monospace, monospace; font-size: .86rem; font-weight: 900; letter-spacing: .13em; }
 
 /* Game shell */

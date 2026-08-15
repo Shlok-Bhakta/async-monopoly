@@ -22,6 +22,7 @@ export function Game() {
   const addBot = useMutation(api.game.addBot);
   const playBotStep = useMutation(api.game.playBotStep);
   const leaveGame = useMutation(api.game.leaveGame);
+  const deleteGame = useMutation(api.game.deleteGame);
   const roll = useMutation(api.game.roll);
   const jailAction = useMutation(api.game.jailAction);
   const buyProperty = useMutation(api.game.buyProperty);
@@ -117,6 +118,7 @@ export function Game() {
   }
 
   const inLobby = data.game.status === "lobby";
+  const soleHuman = data.players.filter((player: any) => !player.isBot).length === 1 && Boolean(me);
 
   return (
     <div className="game-wrap">
@@ -128,9 +130,20 @@ export function Game() {
             <span className="game-code">Room {data.game.code}</span>
           </div>
         </div>
-        <button className="game-back" onClick={() => navigate("/")} aria-label="Back to all games">
-          <span>←</span><span className="back-label">All games</span>
-        </button>
+        <div className="game-header-actions">
+          {soleHuman && !inLobby && (
+            <button className="btn-danger" onClick={() => {
+              if (window.confirm("Delete this game and all of its data? This cannot be undone.")) {
+                void run(() => deleteGame({ gameId: data.game._id }).then(() => navigate("/")));
+              }
+            }}>
+              Delete game
+            </button>
+          )}
+          <button className="game-back" onClick={() => navigate("/")} aria-label="Back to all games">
+            <span>←</span><span className="back-label">All games</span>
+          </button>
+        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -152,9 +165,19 @@ export function Game() {
             <button className="btn-primary md:flex-none" disabled={data.players.length < 2} onClick={() => run(() => startGame({ gameId: data.game._id }))}>
               Start game ({data.players.length} player{data.players.length === 1 ? "" : "s"})
             </button>
-            <button className="btn-ghost md:flex-none" onClick={() => run(() => leaveGame({ gameId: data.game._id }).then(() => navigate("/")))}>
-              Leave lobby
-            </button>
+            {soleHuman ? (
+              <button className="btn-danger md:flex-none" onClick={() => {
+                if (window.confirm("Delete this game and all of its data? This cannot be undone.")) {
+                  void run(() => deleteGame({ gameId: data.game._id }).then(() => navigate("/")));
+                }
+              }}>
+                Delete game
+              </button>
+            ) : (
+              <button className="btn-ghost md:flex-none" onClick={() => run(() => leaveGame({ gameId: data.game._id }).then(() => navigate("/")))}>
+                Leave lobby
+              </button>
+            )}
           </div>
           {data.players.length < 8 && data.game.createdBy === me?.userId && (
             <div className="flex flex-col gap-2 mt-4 md:flex-row md:gap-3">
@@ -636,7 +659,7 @@ export function PropertyModal({ space, players, me, myTurn, gameStatus, phase, h
 export function TradeModal({ players, meId, gameId, onClose, onError }: any) {
   const sendTrade = useMutation(api.game.sendTrade);
   const me = players.find((p: any) => p._id === meId);
-  const others = players.filter((p: any) => p._id !== meId && !p.bankrupt && !p.isBot);
+  const others = players.filter((p: any) => p._id !== meId && !p.bankrupt);
   const [toId, setToId] = useState<string | null>(others[0]?._id ?? null);
   const [myProps, setMyProps] = useState<number[]>([]);
   const [theirProps, setTheirProps] = useState<number[]>([]);
@@ -683,7 +706,7 @@ export function TradeModal({ players, meId, gameId, onClose, onError }: any) {
         <div className="modal-title">Make a trade</div>
         <label htmlFor="trade-player">Trade with</label>
         <select id="trade-player" value={toId ?? ""} onChange={(e) => { setToId(e.target.value); setTheirProps([]); }}>
-          {others.map((p: any) => <option key={p._id} value={p._id}>{p.name}</option>)}
+          {others.map((p: any) => <option key={p._id} value={p._id}>{p.name}{p.isBot ? " (Bot)" : ""}</option>)}
         </select>
 
         <div className="trade-grid">
