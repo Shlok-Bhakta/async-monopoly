@@ -9,6 +9,35 @@ vi.mock("convex/react", () => ({
 import { TradeModal } from "../src/components/Game";
 
 describe("TradeModal", () => {
+  it("offers every eligible human player as a trade partner", () => {
+    const alice = {
+      _id: "player-1", name: "Alice", money: 1_000, bankrupt: false,
+      properties: [], houses: [], mortgaged: [],
+    };
+    const bob = {
+      _id: "player-2", name: "Bob", money: 1_000, bankrupt: false,
+      properties: [], houses: [], mortgaged: [],
+    };
+    const charlie = {
+      _id: "player-3", name: "Charlie", money: 1_000, bankrupt: false,
+      properties: [], houses: [], mortgaged: [],
+    };
+
+    const html = renderToStaticMarkup(
+      <TradeModal
+        players={[alice, bob, charlie]}
+        meId={alice._id}
+        gameId="game-1"
+        onClose={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    expect(html).toMatch(/<option value="player-2"[^>]*>Bob<\/option>/);
+    expect(html).toMatch(/<option value="player-3"[^>]*>Charlie<\/option>/);
+    expect(html).not.toContain('<option value="player-1">Alice</option>');
+  });
+
   it("excludes mortgaged deeds and shows that neither side has tradable deeds", () => {
     const alice = {
       _id: "player-1",

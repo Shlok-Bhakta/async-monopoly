@@ -47,7 +47,7 @@ export const SPACES: Space[] = [
   { index: 1, name: "Mediterranean Avenue", type: "property", group: "brown", price: 60, rents: [2, 10, 30, 90, 160, 250], houseCost: 50, mortgage: 30 },
   { index: 2, name: "Community Chest", type: "communityChest" },
   { index: 3, name: "Baltic Avenue", type: "property", group: "brown", price: 60, rents: [4, 20, 60, 180, 320, 450], houseCost: 50, mortgage: 30 },
-  { index: 4, name: "Income Tax", type: "tax", tax: 200 },
+  { index: 4, name: "Income Tax", type: "tax", tax: 150 },
   { index: 5, name: "Reading Railroad", type: "railroad", price: 200, mortgage: 100 },
   { index: 6, name: "Oriental Avenue", type: "property", group: "lightblue", price: 100, rents: [6, 30, 90, 270, 400, 550], houseCost: 50, mortgage: 50 },
   { index: 7, name: "Chance", type: "chance" },

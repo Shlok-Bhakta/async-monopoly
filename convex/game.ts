@@ -1242,7 +1242,34 @@ export const playBotStep = mutation({
           await ctx.db.patch(gameId, { phase: game.doublesCount > 0 ? "roll" : "manage", phaseData: {} });
         }
       } else {
-        await ctx.db.patch(bot._id, { money: 0, houses: [], bankrupt: true });
+        const insolventBot = (await ctx.db.get(bot._id))!;
+        const totalCash = insolventBot.money + liquidateHouses(insolventBot as any);
+        await ctx.db.patch(bot._id, {
+          money: 0,
+          houses: [],
+          properties: [],
+          mortgaged: [],
+          stockInvestment: 0,
+          stockValue: 0,
+          bankrupt: true,
+        });
+        const { to } = game.phaseData;
+        if (to !== "bank" && to !== "players") {
+          const creditor = await ctx.db.get(to as Id<"players">);
+          if (creditor) {
+            await ctx.db.patch(creditor._id, {
+              money: creditor.money + totalCash,
+              properties: [...creditor.properties, ...insolventBot.properties],
+              mortgaged: [...creditor.mortgaged, ...insolventBot.mortgaged],
+              stockInvestment: (creditor.stockInvestment ?? 0) + (insolventBot.stockInvestment ?? 0),
+              stockValue: (creditor.stockValue ?? 0) + (insolventBot.stockValue ?? 0),
+            });
+          }
+        } else if (to === "players") {
+          const others = players.filter((candidate) => !candidate.bankrupt && candidate._id !== bot._id);
+          const share = others.length ? Math.floor(totalCash / others.length) : 0;
+          for (const other of others) await ctx.db.patch(other._id, { money: other.money + share });
+        }
         const alive = players.filter((candidate) => !candidate.bankrupt && candidate._id !== bot._id);
         if (alive.length <= 1) {
           await ctx.db.patch(gameId, { status: "finished", phase: "gameOver", phaseData: { winner: alive[0]?._id ?? null }, winner: alive[0]?._id, endedAt: now(), lastActionAt: now() });
@@ -1337,6 +1364,10 @@ export const declareBankruptcy = mutation({
     await ctx.db.patch(player._id, {
       money: 0,
       houses: [],
+      properties: [],
+      mortgaged: [],
+      stockInvestment: 0,
+      stockValue: 0,
       bankrupt: true,
     });
     await log(ctx, gameId, player._id, "bankrupt", `${player.name} went bankrupt! (assets liquidated)`);
@@ -1349,8 +1380,10 @@ export const declareBankruptcy = mutation({
           money: creditor.money + totalCash,
           properties: [...creditor.properties, ...fresh.properties],
           mortgaged: [...creditor.mortgaged, ...fresh.mortgaged],
+          stockInvestment: (creditor.stockInvestment ?? 0) + (fresh.stockInvestment ?? 0),
+          stockValue: (creditor.stockValue ?? 0) + (fresh.stockValue ?? 0),
         });
-        await log(ctx, gameId, player._id, "bankrupt", `${creditor.name} receives ${player.name}'s cash ($${totalCash}) and properties.`);
+        await log(ctx, gameId, player._id, "bankrupt", `${creditor.name} receives ${player.name}'s cash ($${totalCash}), properties, and stock.`);
       }
     } else if (to === "players") {
       const others = players.filter((p: any) => p._id !== player._id && !p.bankrupt);

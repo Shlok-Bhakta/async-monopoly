@@ -79,7 +79,7 @@ describe("Stock Market board square", () => {
     });
     expect(getSpace(38)).not.toHaveProperty("tax");
 
-    expect(getSpace(4)).toMatchObject({ name: "Income Tax", type: "tax", tax: 200 });
+    expect(getSpace(4)).toMatchObject({ name: "Income Tax", type: "tax", tax: 150 });
     expect(getSpace(20)).toMatchObject({ name: "Casino", type: "casino" });
     expect(SPACES.filter((space) => space.name === "Luxury Tax")).toHaveLength(0);
   });
