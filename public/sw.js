@@ -4,7 +4,7 @@
    handler MUST keep the event alive with event.waitUntil() until
    showNotification() resolves — see
    https://dev.to/progressier/how-to-fix-ios-push-subscriptions-being-terminated-after-3-notifications-39a7 */
-const CACHE = "crabopoly-v2";
+const CACHE = "crabopoly-v3";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();

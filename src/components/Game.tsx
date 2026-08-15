@@ -56,8 +56,9 @@ export function Game() {
 
   useEffect(() => {
     if (!data || data.game.status !== "playing") return;
-    const auctionBidder = phase === "auction" && data.auction
-      ? data.players.find((player: any) => player._id === data.auction.order[data.auction.nextIndex])
+    const auction = data.auction;
+    const auctionBidder = phase === "auction" && auction
+      ? data.players.find((player: any) => player._id === auction.order[auction.nextIndex])
       : null;
     if (!current?.isBot && !auctionBidder?.isBot) return;
     const timer = window.setTimeout(() => {

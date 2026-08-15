@@ -92,10 +92,15 @@ describe("Casino participation", () => {
   });
 
   it("charges $50 and can award the $200 cash prize", async () => {
-    vi.spyOn(Math, "random").mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValueOnce(0.5);
+    // NOTE: convex-test consumes Math.random internally for a requestId before
+    // each mutation, so the dice mock must apply to ALL calls during the roll.
+    vi.spyOn(Math, "random").mockReturnValue(0); // requestId + dice 1+1 -> Casino
     const { t, asAlice, gameId, playerId } = await gameApproachingCasino();
 
     await asAlice.mutation(api.game.roll, { gameId });
+    // After the roll, switch the mock so the Casino reward draw lands on "cash".
+    vi.restoreAllMocks();
+    vi.spyOn(Math, "random").mockReturnValue(0.5); // requestId + drawCasinoReward -> cash
     await asAlice.mutation(api.game.casinoAction, { gameId, action: "participate" });
 
     const result = await t.run(async (ctx) => ({
