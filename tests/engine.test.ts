@@ -7,8 +7,10 @@ import {
   canBuild,
   computeRent,
   isDoubles,
+  jailBailAmount,
   liquidateHouses,
   monopolyCount,
+  moveStockValue,
   moveBySteps,
   moveToSpace,
   nextAliveSeat,
@@ -71,41 +73,55 @@ describe("isDoubles", () => {
   });
 });
 
+describe("jailBailAmount", () => {
+  it("increases by visit but never exceeds $200", () => {
+    expect(jailBailAmount({ jailVisits: 1 })).toBe(50);
+    expect(jailBailAmount({ jailVisits: 4 })).toBe(200);
+    expect(jailBailAmount({ jailVisits: 9 })).toBe(200);
+  });
+});
+
+describe("moveStockValue", () => {
+  it("applies the percentage to the holding's current value", () => {
+    expect(moveStockValue(400, 500, 25)).toBe(625);
+    expect(moveStockValue(400, 500, -25)).toBe(375);
+    expect(moveStockValue(0, 500, 25)).toBe(0);
+  });
+});
+
 describe("computeRent", () => {
   it("charges base rent on a single property", () => {
     const owner = player({ properties: [1] });
     expect(computeRent(1, owner, 0)).toEqual({ amount: 2, breakdown: "Base 2" });
   });
 
-  it("replaces double rent with a 5% portfolio bonus for one monopoly", () => {
+  it("doubles unimproved rent for a complete color monopoly", () => {
     const owner = player({ properties: [1, 3] });
     const rent = computeRent(1, owner, 0);
-    expect(rent.amount).toBeCloseTo(2.1);
-    expect(rent.breakdown).toContain("+5% (1 monopoly)");
-    expect(rent.breakdown).not.toContain("x2");
+    expect(rent.amount).toBe(4);
+    expect(rent.breakdown).toContain("x2 (color monopoly)");
   });
 
-  it("applies a monopoly bonus to a deed outside the completed color group", () => {
+  it("does not apply a monopoly bonus outside the completed color group", () => {
     const owner = player({ properties: [1, 3, 24] });
-    expect(computeRent(24, owner, 0).amount).toBe(21);
+    expect(computeRent(24, owner, 0).amount).toBe(20);
   });
 
-  it("stacks 5% for each completed monopoly", () => {
+  it("does not stack unrelated completed monopolies", () => {
     const owner = player({ properties: [1, 3, 24, 37, 39] });
     const rent = computeRent(24, owner, 0);
-    expect(rent.amount).toBe(22);
-    expect(rent.breakdown).toContain("+10% (2 monopolies)");
+    expect(rent.amount).toBe(20);
   });
 
   it("charges house rent when houses are built", () => {
     const owner = player({ properties: [1, 3], houses: [{ space: 1, count: 2 }] });
-    expect(computeRent(1, owner, 0).amount).toBeCloseTo(31.5); // $30 + 5%.
+    expect(computeRent(1, owner, 0).amount).toBe(30);
     expect(computeRent(1, owner, 0).breakdown).toContain("2 houses");
   });
 
   it("charges hotel rent at 5 houses", () => {
     const owner = player({ properties: [1, 3], houses: [{ space: 1, count: 5 }] });
-    expect(computeRent(1, owner, 0).amount).toBeCloseTo(262.5);
+    expect(computeRent(1, owner, 0).amount).toBe(250);
   });
 
   it("charges nothing for a mortgaged property", () => {
@@ -120,7 +136,7 @@ describe("computeRent", () => {
 
   it("charges railroad rent based on number owned", () => {
     const one = player({ properties: [1, 3, 5] });
-    expect(computeRent(5, one, 0).amount).toBeCloseTo(26.25);
+    expect(computeRent(5, one, 0).amount).toBe(25);
     const noMonopoly = player({ properties: [5] });
     expect(computeRent(5, noMonopoly, 0).amount).toBe(25);
     const two = player({ properties: [5, 15] });
@@ -129,7 +145,7 @@ describe("computeRent", () => {
 
   it("charges utility rent based on dice and utilities owned", () => {
     const one = player({ properties: [1, 3, 12] });
-    expect(computeRent(12, one, 6).amount).toBeCloseTo(25.2); // 4x dice + 5%.
+    expect(computeRent(12, one, 6).amount).toBe(24);
     const noMonopoly = player({ properties: [12] });
     expect(computeRent(12, noMonopoly, 6).amount).toBe(24);
     const two = player({ properties: [12, 28] });
@@ -145,7 +161,7 @@ describe("computeRent", () => {
   it("applies a card multiplier on top of the rent", () => {
     const owner = player({ properties: [1, 3] });
     const rent = computeRent(1, owner, 0, 2);
-    expect(rent.amount).toBeCloseTo(4.2); // $2 + 5% monopoly bonus, doubled by card.
+    expect(rent.amount).toBe(8); // $2 doubled for the monopoly, then doubled by the card.
     expect(rent.breakdown).toContain("x2 (card)");
   });
 });

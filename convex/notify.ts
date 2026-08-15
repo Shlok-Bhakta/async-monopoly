@@ -77,7 +77,7 @@ export const notifyCurrentTurn = internalAction({
       const { game, players } = await ctx.runQuery(internal.notifyDb.getGameState, { gameId });
       if (!game || game.status !== "playing") return;
       const current = players[game.turn];
-      if (!current || current.bankrupt) return;
+      if (!current || current.bankrupt || !current.userId) return;
       await sendToUser(
         ctx,
         current.userId,
@@ -101,7 +101,7 @@ export const notifyTrade = internalAction({
     try {
       const { game } = await ctx.runQuery(internal.notifyDb.getGameState, { gameId });
       const to = await ctx.runQuery(internal.notifyDb.getPlayer, { playerId: toPlayerId });
-      if (!game || !to) return;
+      if (!game || !to || !to.userId) return;
       await sendToUser(
         ctx,
         to.userId,
@@ -122,7 +122,7 @@ export const notifyGameStarted = internalAction({
       const { game, players } = await ctx.runQuery(internal.notifyDb.getGameState, { gameId });
       if (!game || game.status !== "playing") return;
       const first = players[game.turn];
-      if (!first || first.bankrupt) return;
+      if (!first || first.bankrupt || !first.userId) return;
       await sendToUser(
         ctx,
         first.userId,

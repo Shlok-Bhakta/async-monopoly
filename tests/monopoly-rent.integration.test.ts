@@ -68,8 +68,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("monopoly portfolio rent", () => {
-  it("charges 5% per monopoly instead of double rent on the landed monopoly", async () => {
+describe("classic monopoly rent", () => {
+  it("doubles base rent on an unimproved property in its completed color set", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0); // 1 + 1 moves Alice to Boardwalk.
     const { t, asRenter, gameId, renterId, ownerId } = await gameBeforeRent();
 
@@ -79,7 +79,7 @@ describe("monopoly portfolio rent", () => {
       renter: await ctx.db.get(renterId),
       owner: await ctx.db.get(ownerId),
     }));
-    expect(result.renter?.money).toBe(945); // $50 base + 10% for two monopolies.
-    expect(result.owner?.money).toBe(1_055);
+    expect(result.renter?.money).toBe(900);
+    expect(result.owner?.money).toBe(1_100);
   });
 });

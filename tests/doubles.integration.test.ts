@@ -90,6 +90,7 @@ describe("doubles bonus roll", () => {
     });
 
     await asAlice.mutation(api.game.jailAction, { gameId, action: "roll" });
+    await asAlice.mutation(api.game.casinoAction, { gameId, action: "pass" });
 
     const result = await t.run(async (ctx) => ({
       game: await ctx.db.get(gameId),

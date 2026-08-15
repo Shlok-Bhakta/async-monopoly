@@ -95,6 +95,7 @@ export const HOTEL_SUPPLY = 12;
 export const STARTING_MONEY = 1500;
 export const GO_SALARY = 200;
 export const JAIL_BAIL = 50;
+export const MAX_JAIL_BAIL = 200;
 export const MAX_JAIL_TURNS = 3;
 
 export function getSpace(index: number): Space {

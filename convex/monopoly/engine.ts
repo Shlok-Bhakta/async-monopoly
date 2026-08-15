@@ -11,10 +11,11 @@ import {
   utilityCount,
   GO_SALARY,
   JAIL_BAIL,
+  MAX_JAIL_BAIL,
   MAX_JAIL_TURNS,
 } from "./board";
 
-export const MONOPOLY_RENT_BONUS = 0.05;
+export const STOCK_MOVE_PERCENTAGES = [-25, -10, 10, 25] as const;
 
 export function rollDice(): [number, number] {
   return [1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)];
@@ -25,8 +26,12 @@ export function isDoubles(dice: number[]): boolean {
 }
 
 export function moveStockValue(investment: number, currentValue: number, percent: number): number {
-  const change = Math.round(investment * percent / 100);
-  return Math.max(0, currentValue + change);
+  if (investment <= 0) return 0;
+  return Math.max(0, Math.round(currentValue * (1 + percent / 100)));
+}
+
+export function rollStockMove(random: () => number = Math.random): number {
+  return STOCK_MOVE_PERCENTAGES[Math.floor(random() * STOCK_MOVE_PERCENTAGES.length)];
 }
 
 // Player shape used by the engine (subset of the Convex players doc).
@@ -64,10 +69,6 @@ export function monopolyCount(properties: number[]): number {
   return Object.keys(GROUPS).filter((group) => isGroupMonopolized(properties, group)).length;
 }
 
-export function monopolyRentMultiplier(properties: number[]): number {
-  return 1 + monopolyCount(properties) * MONOPOLY_RENT_BONUS;
-}
-
 // Advance by `steps`, collecting GO salary if we pass (but not land on) GO.
 export function moveBySteps(player: EnginePlayer, steps: number): { position: number; salary: number } {
   let salary = 0;
@@ -97,16 +98,11 @@ export interface RentInfo {
   breakdown: string;
 }
 
-function rentModifiers(owner: EnginePlayer, cardMultiplier: number): { multiplier: number; label: string } {
-  const monopolies = monopolyCount(owner.properties);
-  const bonusPercent = monopolies * MONOPOLY_RENT_BONUS * 100;
-  const bonusLabel = monopolies > 0
-    ? ` +${bonusPercent}% (${monopolies} monopol${monopolies === 1 ? "y" : "ies"})`
-    : "";
+function rentModifiers(cardMultiplier: number): { multiplier: number; label: string } {
   const cardLabel = cardMultiplier !== 1 ? ` x${cardMultiplier} (card)` : "";
   return {
-    multiplier: (1 + bonusPercent / 100) * cardMultiplier,
-    label: `${bonusLabel}${cardLabel}`,
+    multiplier: cardMultiplier,
+    label: cardLabel,
   };
 }
 
@@ -125,14 +121,16 @@ export function computeRent(
   if (owner.mortgaged.includes(spaceIndex)) {
     return { amount: 0, breakdown: "Mortgaged — no rent" };
   }
-  const modifiers = rentModifiers(owner, multiplier);
+  const modifiers = rentModifiers(multiplier);
   if (space.type === "property") {
     const houses = houseCount(owner, spaceIndex);
     if (houses === 0) {
       const base = space.rents![0];
+      const monopolyMultiplier = isGroupMonopolized(owner.properties, space.group!) ? 2 : 1;
+      const monopolyLabel = monopolyMultiplier === 2 ? " x2 (color monopoly)" : "";
       return {
-        amount: base * modifiers.multiplier,
-        breakdown: `Base ${base}${modifiers.label}`,
+        amount: base * monopolyMultiplier * modifiers.multiplier,
+        breakdown: `Base ${base}${monopolyLabel}${modifiers.label}`,
       };
     }
     const rent = space.rents![houses];
@@ -232,7 +230,7 @@ export function jailStatus(player: EnginePlayer): string | null {
 }
 
 export function jailBailAmount(player: Pick<EnginePlayer, "jailVisits">): number {
-  return JAIL_BAIL * Math.max(1, player.jailVisits ?? 1);
+  return Math.min(MAX_JAIL_BAIL, JAIL_BAIL * Math.max(1, player.jailVisits ?? 1));
 }
 
 export const JAIL_BAIL_AMOUNT = JAIL_BAIL;

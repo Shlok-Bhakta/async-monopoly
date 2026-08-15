@@ -39,7 +39,7 @@ export default defineSchema({
 
   players: defineTable({
     gameId: v.id("games"),
-    userId: v.id("users"),
+    userId: v.optional(v.id("users")),
     seatIndex: v.number(),
     token: v.string(),
     name: v.string(),
@@ -55,6 +55,12 @@ export default defineSchema({
     mortgaged: v.array(v.number()),
     stockInvestment: v.optional(v.number()),
     stockValue: v.optional(v.number()),
+    isBot: v.optional(v.boolean()),
+    botPlaystyle: v.optional(v.union(
+      v.literal("conservative"),
+      v.literal("balanced"),
+      v.literal("aggressive"),
+    )),
     joinedAt: v.number(),
   })
     .index("by_game", ["gameId"])

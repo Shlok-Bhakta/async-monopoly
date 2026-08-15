@@ -28,8 +28,8 @@ const NEW_BUILDING_CARDS = [
 ];
 
 const LEGACY_CARD_FINGERPRINTS = [
-  ...CHANCE_DECK.slice(0, 16),
-  ...COMMUNITY_CHEST_DECK.slice(0, 16),
+  ...CHANCE_DECK.filter((card) => !NEW_BUILDING_CARDS.some((added) => added.text === card.text)),
+  ...COMMUNITY_CHEST_DECK.filter((card) => !NEW_BUILDING_CARDS.some((added) => added.text === card.text)),
 ].map(({ text, effect }) => `${text}|${JSON.stringify(effect)}`);
 
 const EXPECTED_LEGACY_CARD_FINGERPRINTS = [
@@ -48,7 +48,6 @@ const EXPECTED_LEGACY_CARD_FINGERPRINTS = [
   "You have been elected Chairman of the Board. Pay each player $50.|{\"type\":\"payEachPlayer\",\"amount\":50}",
   "Your building loan matures. Collect $150.|{\"type\":\"collect\",\"amount\":150}",
   "You have won a crossword competition. Collect $100.|{\"type\":\"collect\",\"amount\":100}",
-  "The market surges! Every investment gains 25% of its principal.|{\"type\":\"marketMove\",\"percent\":25}",
   "Advance to Go. Collect $200.|{\"type\":\"moveTo\",\"space\":0,\"collectOnPass\":true}",
   "Bank error in your favor. Collect $200.|{\"type\":\"collect\",\"amount\":200}",
   "Doctor's fees. Pay $50.|{\"type\":\"pay\",\"amount\":50}",
@@ -64,7 +63,6 @@ const EXPECTED_LEGACY_CARD_FINGERPRINTS = [
   "Receive $25 consultancy fee.|{\"type\":\"collect\",\"amount\":25}",
   "You are assessed for street repairs: pay $40 for each house and $115 for each hotel.|{\"type\":\"repairs\",\"perHouse\":40,\"perHotel\":115}",
   "You have won second prize in a beauty contest. Collect $10.|{\"type\":\"collect\",\"amount\":10}",
-  "The market slumps. Every investment loses 25% of its principal.|{\"type\":\"marketMove\",\"percent\":-25}",
 ];
 
 async function gameApproachingCardSpace(position: number) {
@@ -114,8 +112,8 @@ afterEach(() => {
 describe("building-related event card decks", () => {
   it("adds three building cards without changing any legacy card", () => {
     expect(LEGACY_CARD_FINGERPRINTS).toEqual(EXPECTED_LEGACY_CARD_FINGERPRINTS);
-    expect(CHANCE_DECK).toHaveLength(18);
-    expect(COMMUNITY_CHEST_DECK).toHaveLength(17);
+    expect(CHANCE_DECK).toHaveLength(17);
+    expect(COMMUNITY_CHEST_DECK).toHaveLength(16);
     expect([...CHANCE_DECK, ...COMMUNITY_CHEST_DECK]).toEqual(
       expect.arrayContaining(NEW_BUILDING_CARDS),
     );

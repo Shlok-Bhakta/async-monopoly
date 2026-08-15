@@ -12,8 +12,7 @@ export type CardEffect =
   | { type: "collectFromEach"; amount: number }
   | { type: "nearestUtility" }
   | { type: "nearestRailroad" }
-  | { type: "moveRelative"; spaces: number }
-  | { type: "marketMove"; percent: number };
+  | { type: "moveRelative"; spaces: number };
 
 export interface Card {
   text: string;
@@ -63,7 +62,6 @@ export const CHANCE_DECK: Card[] = [
   { text: "You have been elected Chairman of the Board. Pay each player $50.", effect: { type: "payEachPlayer", amount: 50 } },
   { text: "Your building loan matures. Collect $150.", effect: { type: "collect", amount: 150 } },
   { text: "You have won a crossword competition. Collect $100.", effect: { type: "collect", amount: 100 } },
-  { text: "The market surges! Every investment gains 25% of its principal.", effect: { type: "marketMove", percent: 25 } },
   { text: "Storm damage! Pay $30 for each house and $125 for each hotel.", effect: { type: "repairs", perHouse: 30, perHotel: 125 } },
   { text: "Your properties win city beautification awards. Collect $25 for each house and $100 for each hotel.", effect: { type: "buildingWindfall", perHouse: 25, perHotel: 100 } },
 ];
@@ -84,6 +82,5 @@ export const COMMUNITY_CHEST_DECK: Card[] = [
   { text: "Receive $25 consultancy fee.", effect: { type: "collect", amount: 25 } },
   { text: "You are assessed for street repairs: pay $40 for each house and $115 for each hotel.", effect: { type: "repairs", perHouse: 40, perHotel: 115 } },
   { text: "You have won second prize in a beauty contest. Collect $10.", effect: { type: "collect", amount: 10 } },
-  { text: "The market slumps. Every investment loses 25% of its principal.", effect: { type: "marketMove", percent: -25 } },
   { text: "Local housing grants are approved. Collect $40 for each house and $150 for each hotel.", effect: { type: "buildingWindfall", perHouse: 40, perHotel: 150 } },
 ];

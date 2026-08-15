@@ -127,7 +127,7 @@ export const getAuctionTarget = internalQuery({
     const bidderId = auction.order[auction.nextIndex];
     if (!bidderId) return null;
     const bidder = await ctx.db.get(bidderId);
-    if (!bidder || bidder.bankrupt) return null;
+    if (!bidder || bidder.bankrupt || !bidder.userId) return null;
     return { userId: bidder.userId, gameName: game.name };
   },
 });
@@ -146,7 +146,7 @@ export const getActiveGameTurnTargets = internalQuery({
         .collect();
       const sorted = [...players].sort((a, b) => a.seatIndex - b.seatIndex);
       const current = sorted[g.turn];
-      if (!current || current.bankrupt) continue;
+      if (!current || current.bankrupt || !current.userId) continue;
       out.push({ gameId: g._id, gameName: g.name, userId: current.userId });
     }
     return out;

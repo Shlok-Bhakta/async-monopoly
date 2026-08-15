@@ -1,7 +1,6 @@
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
-import { SPACES } from "../convex/monopoly/board";
 import schema from "../convex/schema";
 
 const modules = import.meta.glob("../convex/**/*.ts");
@@ -69,12 +68,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("Casino landing reward", () => {
-  it("awards the first unowned deed in board order and explains it in the game log", async () => {
+describe("Casino participation", () => {
+  it("charges $50 and can award the first unowned deed", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0); // 1 + 1 moves from 18 to Casino.
     const { t, asAlice, gameId, playerId } = await gameApproachingCasino();
 
     await asAlice.mutation(api.game.roll, { gameId });
+    expect((await t.run((ctx) => ctx.db.get(gameId)))?.phase).toBe("casino");
+    await asAlice.mutation(api.game.casinoAction, { gameId, action: "participate" });
 
     const result = await t.run(async (ctx) => ({
       player: await ctx.db.get(playerId),
@@ -84,19 +85,18 @@ describe("Casino landing reward", () => {
         .collect(),
     }));
     expect(result.player?.properties).toEqual([3, 5]);
-    expect(result.player?.money).toBe(1_000);
+    expect(result.player?.money).toBe(950);
     expect(result.events.map((event) => event.message)).toContain(
-      "Alice landed on the Casino and won Reading Railroad, the first unowned property in board order!",
+      "Alice paid $50 and won Reading Railroad!",
     );
   });
 
-  it("falls back to a $200 prize when every deed is owned and explains why", async () => {
-    vi.spyOn(Math, "random").mockReturnValue(0); // 1 + 1 moves from 18 to Casino.
-    const { t, asAlice, gameId, playerId, otherPlayerId } = await gameApproachingCasino();
-    const everyDeed = SPACES.filter((space) => space.price !== undefined).map((space) => space.index);
-    await t.run((ctx) => ctx.db.patch(otherPlayerId, { properties: everyDeed }));
+  it("charges $50 and can award the $200 cash prize", async () => {
+    vi.spyOn(Math, "random").mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValueOnce(0.5);
+    const { t, asAlice, gameId, playerId } = await gameApproachingCasino();
 
     await asAlice.mutation(api.game.roll, { gameId });
+    await asAlice.mutation(api.game.casinoAction, { gameId, action: "participate" });
 
     const result = await t.run(async (ctx) => ({
       player: await ctx.db.get(playerId),
@@ -106,9 +106,9 @@ describe("Casino landing reward", () => {
         .collect(),
     }));
     expect(result.player?.properties).toEqual([3]);
-    expect(result.player?.money).toBe(1_200);
+    expect(result.player?.money).toBe(1_150);
     expect(result.events.map((event) => event.message)).toContain(
-      "Alice landed on the Casino and won $200 because every property is already owned!",
+      "Alice paid $50 and won $200!",
     );
   });
 });

@@ -7,12 +7,6 @@ import schema from "../convex/schema";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 
-function cardIndex(deck: typeof CHANCE_DECK, text: string): number {
-  const index = deck.findIndex((card) => card.text === text);
-  if (index < 0) throw new Error(`Card not found: ${text}`);
-  return index;
-}
-
 async function gameApproachingStockMarket() {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
@@ -91,23 +85,19 @@ describe("Stock Market board square", () => {
   });
 });
 
-describe("Stock Market event cards", () => {
-  it("adds one upward and one downward market event to the decks", () => {
+describe("Stock movement on rolls", () => {
+  it("removes global market events from both card decks", () => {
     const effects = [...CHANCE_DECK, ...COMMUNITY_CHEST_DECK]
       .map((card) => card.effect)
-      .filter((effect) => effect.type === "marketMove");
-
-    expect(effects).toEqual([
-      { type: "marketMove", percent: 25 },
-      { type: "marketMove", percent: -25 },
-    ]);
+      .filter((effect) => "type" in effect && (effect as any).type === "marketMove");
+    expect(effects).toEqual([]);
   });
 
-  it("applies an upward event to each player's principal and current value", async () => {
+  it("moves only the rolling player's current holding by a random percentage", async () => {
     const { t, asAlice, gameId, playerId, otherPlayerId } = await gameApproachingStockMarket();
     await t.run(async (ctx) => {
       await ctx.db.patch(playerId, {
-        position: 4,
+        position: 1,
         stockInvestment: 400,
         stockValue: 500,
       });
@@ -115,45 +105,11 @@ describe("Stock Market event cards", () => {
         stockInvestment: 200,
         stockValue: 150,
       });
-      await ctx.db.patch(gameId, {
-        chanceDeck: [cardIndex(CHANCE_DECK, "The market surges! Every investment gains 25% of its principal.")],
-      });
     });
     vi.spyOn(Math, "random")
       .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0.2);
-
-    await asAlice.mutation(api.game.roll, { gameId });
-
-    const result = await t.run(async (ctx) => ({
-      alice: await ctx.db.get(playerId),
-      bob: await ctx.db.get(otherPlayerId),
-      game: await ctx.db.get(gameId),
-    }));
-    expect(result.alice).toMatchObject({ money: 1_000, stockInvestment: 400, stockValue: 600 });
-    expect(result.bob).toMatchObject({ money: 1_000, stockInvestment: 200, stockValue: 200 });
-    expect(result.game?.phase).toBe("manage");
-  });
-
-  it("applies a downward event without letting a holding fall below zero", async () => {
-    const { t, asAlice, gameId, playerId, otherPlayerId } = await gameApproachingStockMarket();
-    await t.run(async (ctx) => {
-      await ctx.db.patch(playerId, {
-        position: 14,
-        stockInvestment: 400,
-        stockValue: 500,
-      });
-      await ctx.db.patch(otherPlayerId, {
-        stockInvestment: 800,
-        stockValue: 50,
-      });
-      await ctx.db.patch(gameId, {
-        communityChestDeck: [cardIndex(COMMUNITY_CHEST_DECK, "The market slumps. Every investment loses 25% of its principal.")],
-      });
-    });
-    vi.spyOn(Math, "random")
       .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0.2);
+      .mockReturnValueOnce(0); // -25% stock move after rolling 1 + 1.
 
     await asAlice.mutation(api.game.roll, { gameId });
 
@@ -161,8 +117,8 @@ describe("Stock Market event cards", () => {
       alice: await ctx.db.get(playerId),
       bob: await ctx.db.get(otherPlayerId),
     }));
-    expect(result.alice).toMatchObject({ stockInvestment: 400, stockValue: 400 });
-    expect(result.bob).toMatchObject({ stockInvestment: 800, stockValue: 0 });
+    expect(result.alice).toMatchObject({ money: 1_000, stockInvestment: 400, stockValue: 375 });
+    expect(result.bob).toMatchObject({ money: 1_000, stockInvestment: 200, stockValue: 150 });
   });
 });
 
@@ -221,17 +177,17 @@ describe("Stock Market landing", () => {
   it("shows the player's persisted principal and current value on a later landing", async () => {
     const { t, asAlice, gameId, playerId } = await gameApproachingStockMarket();
     await t.run((ctx) => ctx.db.patch(playerId, { stockInvestment: 400, stockValue: 500 }));
-    vi.spyOn(Math, "random").mockReturnValueOnce(0).mockReturnValueOnce(0.2);
+    vi.spyOn(Math, "random").mockReturnValueOnce(0).mockReturnValueOnce(0.2).mockReturnValueOnce(0.99);
 
     await asAlice.mutation(api.game.roll, { gameId });
 
     const game = await t.run((ctx) => ctx.db.get(gameId));
-    expect(game?.phaseData).toEqual({ investment: 400, value: 500 });
+    expect(game?.phaseData).toEqual({ investment: 400, value: 625 });
   });
 
   it("invests any chosen amount from the player's available cash", async () => {
     const { t, asAlice, gameId, playerId } = await gameApproachingStockMarket();
-    vi.spyOn(Math, "random").mockReturnValueOnce(0).mockReturnValueOnce(0.2);
+    vi.spyOn(Math, "random").mockReturnValueOnce(0).mockReturnValueOnce(0.2).mockReturnValueOnce(0);
     await asAlice.mutation(api.game.roll, { gameId });
 
     await asAlice.mutation(api.game.stockMarketAction, {
@@ -253,7 +209,7 @@ describe("Stock Market landing", () => {
   it("adds a later investment to both principal and current value", async () => {
     const { t, asAlice, gameId, playerId } = await gameApproachingStockMarket();
     await t.run((ctx) => ctx.db.patch(playerId, { stockInvestment: 400, stockValue: 500 }));
-    vi.spyOn(Math, "random").mockReturnValueOnce(0).mockReturnValueOnce(0.2);
+    vi.spyOn(Math, "random").mockReturnValueOnce(0).mockReturnValueOnce(0.2).mockReturnValueOnce(0);
     await asAlice.mutation(api.game.roll, { gameId });
 
     await asAlice.mutation(api.game.stockMarketAction, {
@@ -265,14 +221,15 @@ describe("Stock Market landing", () => {
     const player = await t.run((ctx) => ctx.db.get(playerId));
     expect(player?.money).toBe(800);
     expect(player?.stockInvestment).toBe(600);
-    expect(player?.stockValue).toBe(700);
+    expect(player?.stockValue).toBe(575);
   });
 
-  it("cashes out the current value and clears the player's position", async () => {
+  it("cashes out the current value away from the Stock Market space", async () => {
     const { t, asAlice, gameId, playerId } = await gameApproachingStockMarket();
-    await t.run((ctx) => ctx.db.patch(playerId, { stockInvestment: 400, stockValue: 500 }));
-    vi.spyOn(Math, "random").mockReturnValueOnce(0).mockReturnValueOnce(0.2);
-    await asAlice.mutation(api.game.roll, { gameId });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(playerId, { stockInvestment: 400, stockValue: 500 });
+      await ctx.db.patch(gameId, { phase: "manage" });
+    });
 
     await asAlice.mutation(api.game.stockMarketAction, {
       gameId,

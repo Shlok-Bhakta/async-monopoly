@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { getSpace, isOnPropertySet } from "../../convex/monopoly/board";
+import { getSpace, isGroupMonopolized, isOnPropertySet } from "../../convex/monopoly/board";
 import { MIN_BID_INCREMENT_PERCENT } from "../../convex/monopoly/auction";
-import { jailBailAmount, MONOPOLY_RENT_BONUS, monopolyCount, monopolyRentMultiplier } from "../../convex/monopoly/engine";
+import { jailBailAmount } from "../../convex/monopoly/engine";
 import { fmtMoney, GROUP_COLORS } from "../lib/game";
 import { Board } from "./Board";
 import { PropertiesPanel } from "./PropertiesPanel";
@@ -19,6 +19,8 @@ export function Game() {
   const [error, setError] = useState<string | null>(null);
 
   const startGame = useMutation(api.game.startGame);
+  const addBot = useMutation(api.game.addBot);
+  const playBotStep = useMutation(api.game.playBotStep);
   const leaveGame = useMutation(api.game.leaveGame);
   const roll = useMutation(api.game.roll);
   const jailAction = useMutation(api.game.jailAction);
@@ -51,6 +53,25 @@ export function Game() {
   const current = data ? data.players[data.game.turn] : null;
   const myTurn = data && me && current && me._id === current._id;
   const phase = data?.game.phase ?? "lobby";
+
+  useEffect(() => {
+    if (!data || data.game.status !== "playing") return;
+    const auctionBidder = phase === "auction" && data.auction
+      ? data.players.find((player: any) => player._id === data.auction.order[data.auction.nextIndex])
+      : null;
+    if (!current?.isBot && !auctionBidder?.isBot) return;
+    const timer = window.setTimeout(() => {
+      void run(() => playBotStep({ gameId: data.game._id }));
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [
+    data?.game.lastActionAt,
+    data?.game.phase,
+    data?.game.turn,
+    data?.auction?.nextIndex,
+    data?.auction?.currentBid,
+    data?.auction?.order.join(","),
+  ]);
 
   const myAction = useMemo(() => {
     if (!data) return null;
@@ -134,6 +155,13 @@ export function Game() {
               Leave lobby
             </button>
           </div>
+          {data.players.length < 8 && data.game.createdBy === me?.userId && (
+            <div className="flex flex-col gap-2 mt-4 md:flex-row md:gap-3">
+              <button className="btn-ghost" onClick={() => run(() => addBot({ gameId: data.game._id, playstyle: "conservative" }))}>+ Conservative bot</button>
+              <button className="btn-ghost" onClick={() => run(() => addBot({ gameId: data.game._id, playstyle: "balanced" }))}>+ Balanced bot</button>
+              <button className="btn-ghost" onClick={() => run(() => addBot({ gameId: data.game._id, playstyle: "aggressive" }))}>+ Aggressive bot</button>
+            </div>
+          )}
           {data.players.length < 2 && <div className="muted tiny" style={{ marginTop: 8 }}>Need at least 2 players to start.</div>}
         </div>
       ) : (
@@ -179,7 +207,12 @@ export function Game() {
           />
 
           <div className="panels">
-            <PlayerPanel players={data.players} currentId={current?._id} meId={data.myPlayerId} />
+            <PlayerPanel
+              players={data.players}
+              currentId={current?._id}
+              meId={data.myPlayerId}
+              onCashOut={() => run(() => stockMarketAction({ gameId: data.game._id, action: "cashOut" }))}
+            />
             <EventLog events={data.events} />
             <div className="panel trade-panel">
               <div className="panel-title">Deals</div>
@@ -323,11 +356,9 @@ export function ActionBar(props: any) {
       return (
         <div className="action-bar action-casino">
           <div className="action-grip" />
-          <div className="action-status">🎰 Welcome to the Casino — $50 a spin, bank pays the odds</div>
+          <div className="action-status">🎰 Casino entry is $50 — win a property, $200, or nothing</div>
           <div className="action-buttons">
-            <button className="btn-gold" disabled={broke} onClick={() => props.onCasino("slots")}>🎰 Slots ($50)</button>
-            <button className="btn-primary" disabled={broke} onClick={() => props.onCasino("over")}>⬆️ Over 7 ($50)</button>
-            <button className="btn-primary" disabled={broke} onClick={() => props.onCasino("under")}>⬇️ Under 7 ($50)</button>
+            <button className="btn-gold" disabled={broke} onClick={() => props.onCasino("participate")}>Play ($50)</button>
             <button className="btn-ghost" onClick={() => props.onCasino("pass")}>Pass</button>
           </div>
           {broke && <div className="muted tiny">You can't afford the $50 minimum — pass or sell something.</div>}
@@ -447,7 +478,7 @@ function PlayerRail({ players, currentId, meId }: any) {
   );
 }
 
-function PlayerPanel({ players, currentId, meId }: any) {
+function PlayerPanel({ players, currentId, meId, onCashOut }: any) {
   return (
     <div className="panel">
       <div className="panel-title">Players</div>
@@ -458,9 +489,11 @@ function PlayerPanel({ players, currentId, meId }: any) {
         >
           <span className="player-emoji">{p.token.split(" ")[0]}</span>
           <span className="player-name">{p.name}</span>
+          {p.isBot && <span className="player-badge">Bot</span>}
           {p.inJail && !p.bankrupt && <span className="player-badge">Jail</span>}
           {p.bankrupt && <span className="player-badge">Out</span>}
           {(p.stockInvestment ?? 0) > 0 && <span className="player-badge">Market {fmtMoney(p.stockValue ?? 0)}</span>}
+          {p._id === meId && (p.stockInvestment ?? 0) > 0 && <button className="btn-ghost tiny" onClick={onCashOut}>Cash out</button>}
           <span className="player-cash">{fmtMoney(p.money)}</span>
         </div>
       ))}
@@ -522,13 +555,7 @@ export function PropertyModal({ space, players, me, myTurn, gameStatus, phase, h
   const onBuildableSet = Boolean(me && isOnPropertySet(me.position, space));
   const canMortgage = gameStatus === "playing" && myTurn && !mortgaged && myHouseCount === 0 && s.mortgage !== undefined;
   const canUnmortgage = canManage && mortgaged && s.mortgage !== undefined;
-  const ownerMonopolies = owner ? monopolyCount(owner.properties) : 0;
-  const rentMultiplier = owner ? monopolyRentMultiplier(owner.properties) : 1;
-  const monopolyBonusPercent = ownerMonopolies * MONOPOLY_RENT_BONUS * 100;
-  const adjustedRent = (rent: number) => rent * rentMultiplier;
-  const bonusDescription = ownerMonopolies > 0
-    ? `Monopoly portfolio bonus: +${monopolyBonusPercent}% (${ownerMonopolies} monopol${ownerMonopolies === 1 ? "y" : "ies"})`
-    : null;
+  const hasColorMonopoly = Boolean(owner && s.group && isGroupMonopolized(owner.properties, s.group));
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -545,30 +572,30 @@ export function PropertyModal({ space, players, me, myTurn, gameStatus, phase, h
           <div className="owner-line">Unowned — Bank</div>
         )}
 
-        {bonusDescription && <div className="muted tiny" title={bonusDescription}>{bonusDescription}</div>}
+        {hasColorMonopoly && <div className="muted tiny">Unimproved base rent is doubled for this complete color set.</div>}
 
         {s.type === "property" && (
           <div className="rent-grid">
-            <span>{ownerMonopolies > 0 ? "Rent with bonus" : "Rent"}</span><span className="amt">{fmtMoney(adjustedRent(s.rents![0]))}</span>
-            <span>1 house</span><span className="amt">{fmtMoney(adjustedRent(s.rents![1]))}</span>
-            <span>2 houses</span><span className="amt">{fmtMoney(adjustedRent(s.rents![2]))}</span>
-            <span>3 houses</span><span className="amt">{fmtMoney(adjustedRent(s.rents![3]))}</span>
-            <span>4 houses</span><span className="amt">{fmtMoney(adjustedRent(s.rents![4]))}</span>
-            <span>HOTEL</span><span className="amt">{fmtMoney(adjustedRent(s.rents![5]))}</span>
+            <span>{hasColorMonopoly ? "Base rent (monopoly)" : "Rent"}</span><span className="amt">{fmtMoney(s.rents![0] * (hasColorMonopoly ? 2 : 1))}</span>
+            <span>1 house</span><span className="amt">{fmtMoney(s.rents![1])}</span>
+            <span>2 houses</span><span className="amt">{fmtMoney(s.rents![2])}</span>
+            <span>3 houses</span><span className="amt">{fmtMoney(s.rents![3])}</span>
+            <span>4 houses</span><span className="amt">{fmtMoney(s.rents![4])}</span>
+            <span>HOTEL</span><span className="amt">{fmtMoney(s.rents![5])}</span>
           </div>
         )}
         {s.type === "railroad" && (
           <div className="rent-grid">
-            <span>1 railroad</span><span className="amt">{fmtMoney(adjustedRent(25))}</span>
-            <span>2 railroads</span><span className="amt">{fmtMoney(adjustedRent(50))}</span>
-            <span>3 railroads</span><span className="amt">{fmtMoney(adjustedRent(100))}</span>
-            <span>4 railroads</span><span className="amt">{fmtMoney(adjustedRent(200))}</span>
+            <span>1 railroad</span><span className="amt">{fmtMoney(25)}</span>
+            <span>2 railroads</span><span className="amt">{fmtMoney(50)}</span>
+            <span>3 railroads</span><span className="amt">{fmtMoney(100)}</span>
+            <span>4 railroads</span><span className="amt">{fmtMoney(200)}</span>
           </div>
         )}
         {s.type === "utility" && (
           <div className="rent-grid">
-            <span>1 utility owned</span><span className="amt">{4 * rentMultiplier}× dice</span>
-            <span>2 utilities owned</span><span className="amt">{10 * rentMultiplier}× dice</span>
+            <span>1 utility owned</span><span className="amt">4× dice</span>
+            <span>2 utilities owned</span><span className="amt">10× dice</span>
           </div>
         )}
 
@@ -608,7 +635,7 @@ export function PropertyModal({ space, players, me, myTurn, gameStatus, phase, h
 export function TradeModal({ players, meId, gameId, onClose, onError }: any) {
   const sendTrade = useMutation(api.game.sendTrade);
   const me = players.find((p: any) => p._id === meId);
-  const others = players.filter((p: any) => p._id !== meId && !p.bankrupt);
+  const others = players.filter((p: any) => p._id !== meId && !p.bankrupt && !p.isBot);
   const [toId, setToId] = useState<string | null>(others[0]?._id ?? null);
   const [myProps, setMyProps] = useState<number[]>([]);
   const [theirProps, setTheirProps] = useState<number[]>([]);

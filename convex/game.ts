@@ -27,6 +27,7 @@ import {
   liquidateHouses,
   jailBailAmount,
   moveStockValue,
+  rollStockMove,
 } from "./monopoly/engine";
 import { CHANCE_DECK, COMMUNITY_CHEST_DECK, drawCard, shuffleDeck } from "./monopoly/cards";
 import {
@@ -43,14 +44,13 @@ import {
   CASINO_STAKE,
   CASINO_CASH_PRIZE,
   canGamble,
+  drawCasinoReward,
   firstUnownedDeed,
-  resolveOverUnder,
-  rollReels,
-  spinSlots,
 } from "./monopoly/casino";
 
 const TOKENS = ["🟥 Battleship", "🐕 Dog", "🖐️ Hand", "👢 Boot", "🎩 Top Hat", "🐈 Cat", "🚗 Car", "🛒 Wheelbarrow"];
 const GAME_NAME_ANIMALS = ["Orca", "Kiwi", "Axolotl", "Capybara", "Mantis", "Dodo", "Narwhal", "Taco"];
+const BOT_NAMES = ["Ada", "Turing", "Maven", "Rook", "Pixel", "Scout", "Atlas"];
 
 function makeCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -105,6 +105,16 @@ async function maybeNotifyTurn(ctx: any, gameId: any) {
   } catch (err) {
     console.error("notifyCurrentTurn call failed:", err);
   }
+}
+
+async function moveCurrentPlayerStock(ctx: any, gameId: any, player: Doc<"players">) {
+  const investment = player.stockInvestment ?? 0;
+  if (investment <= 0) return;
+  const percent = rollStockMove();
+  const oldValue = player.stockValue ?? investment;
+  const newValue = moveStockValue(investment, oldValue, percent);
+  await ctx.db.patch(player._id, { stockValue: newValue });
+  await log(ctx, gameId, player._id, "stockMarket", `${player.name}'s stock moved ${percent > 0 ? "+" : ""}${percent}% on their roll: $${oldValue} → $${newValue}.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +280,47 @@ export const joinGame = mutation({
   },
 });
 
+export const addBot = mutation({
+  args: {
+    gameId: v.id("games"),
+    playstyle: v.union(v.literal("conservative"), v.literal("balanced"), v.literal("aggressive")),
+  },
+  handler: async (ctx, { gameId, playstyle }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not signed in");
+    const game = await ctx.db.get(gameId);
+    if (!game || game.status !== "lobby") throw new Error("Bots can only be added in the lobby");
+    if (game.createdBy !== userId) throw new Error("Only the game creator can add bots");
+    const players = await ctx.db.query("players").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect();
+    if (players.length >= 8) throw new Error("Game is full (8 max)");
+    const seat = players.length;
+    const botNumber = players.filter((candidate) => candidate.isBot).length;
+    const name = `${BOT_NAMES[botNumber % BOT_NAMES.length]} (${playstyle})`;
+    await ctx.db.insert("players", {
+      gameId,
+      seatIndex: seat,
+      token: TOKENS[seat % TOKENS.length],
+      name,
+      money: STARTING_MONEY,
+      position: 0,
+      inJail: false,
+      jailTurns: 0,
+      jailVisits: 0,
+      getOutOfJailCards: 0,
+      bankrupt: false,
+      properties: [],
+      houses: [],
+      mortgaged: [],
+      stockInvestment: 0,
+      stockValue: 0,
+      isBot: true,
+      botPlaystyle: playstyle,
+      joinedAt: now(),
+    });
+    await log(ctx, gameId, null, "lobby", `${name} joined as a bot.`);
+  },
+});
+
 export const leaveGame = mutation({
   args: { gameId: v.id("games") },
   handler: async (ctx, { gameId }) => {
@@ -342,27 +393,8 @@ async function resolveLanding(
     return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
   }
   if (space.type === "casino") {
-    const reward = firstUnownedDeed(players.flatMap((candidate: any) => candidate.properties));
-    if (reward) {
-      await ctx.db.patch(player._id, { properties: [...player.properties, reward.index] });
-      await log(
-        ctx,
-        game._id,
-        player._id,
-        "casino",
-        `${name} landed on the Casino and won ${reward.name}, the first unowned property in board order!`,
-      );
-      return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
-    }
-    await ctx.db.patch(player._id, { money: player.money + CASINO_CASH_PRIZE });
-    await log(
-      ctx,
-      game._id,
-      player._id,
-      "casino",
-      `${name} landed on the Casino and won $${CASINO_CASH_PRIZE} because every property is already owned!`,
-    );
-    return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
+    await log(ctx, game._id, player._id, "casino", `${name} landed on the Casino and may enter for $${CASINO_STAKE}.`);
+    return { phase: "casino", phaseData: {}, endTurn: false, advance: false };
   }
   if (space.type === "jail") {
     await log(ctx, game._id, player._id, "land", `${name} is just visiting Jail.`);
@@ -484,23 +516,6 @@ async function resolveCard(
   if (e.type === "jailFree") {
     await ctx.db.patch(player._id, { getOutOfJailCards: player.getOutOfJailCards + 1 });
     await log(ctx, game._id, player._id, "card", `${name} kept a Get Out of Jail Free card.`);
-    return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
-  }
-  if (e.type === "marketMove") {
-    for (const candidate of players) {
-      const investment = candidate.stockInvestment ?? 0;
-      if (investment <= 0) continue;
-      await ctx.db.patch(candidate._id, {
-        stockValue: moveStockValue(investment, candidate.stockValue ?? investment, e.percent),
-      });
-    }
-    await log(
-      ctx,
-      game._id,
-      player._id,
-      "stockMarket",
-      `The Stock Market moved ${e.percent > 0 ? "up" : "down"} ${Math.abs(e.percent)}% of every investment's principal.`,
-    );
     return { phase: "manage", phaseData: {}, endTurn: false, advance: false };
   }
   if (e.type === "buildingWindfall") {
@@ -636,6 +651,7 @@ export const roll = mutation({
 
     await ctx.db.patch(gameId, { lastRoll: dice, lastRollSum: sum, lastActionAt: now() });
     await log(ctx, gameId, player._id, "roll", `${player.name} rolled ${dice[0]} + ${dice[1]} = ${sum}${doubles ? " (doubles!)" : ""}.`);
+    await moveCurrentPlayerStock(ctx, gameId, player);
 
     if (doubles && newDoublesCount >= 3) {
       await ctx.db.patch(player._id, jailEntryState(player));
@@ -668,6 +684,10 @@ export const roll = mutation({
     }
     if (res.phase === "stockMarket") {
       await ctx.db.patch(gameId, { phase: "stockMarket", phaseData: res.phaseData, doublesCount: newDoublesCount });
+      return;
+    }
+    if (res.phase === "casino") {
+      await ctx.db.patch(gameId, { phase: "casino", phaseData: {}, doublesCount: newDoublesCount });
       return;
     }
     // manage or end-of-turn
@@ -721,6 +741,7 @@ export const jailAction = mutation({
     const sum = dice[0] + dice[1];
     await ctx.db.patch(gameId, { lastRoll: dice, lastRollSum: sum, lastActionAt: now() });
     await log(ctx, gameId, player._id, "roll", `${player.name} rolled ${dice[0]} + ${dice[1]} = ${sum} in Jail.`);
+    await moveCurrentPlayerStock(ctx, gameId, player);
     if (isDoubles(dice)) {
       const jailEscapeDoublesCount = 1;
       await ctx.db.patch(player._id, { inJail: false, jailTurns: 0 });
@@ -737,6 +758,10 @@ export const jailAction = mutation({
       }
       if (res.phase === "buy") {
         await ctx.db.patch(gameId, { phase: "buy", phaseData: res.phaseData, doublesCount: jailEscapeDoublesCount });
+        return;
+      }
+      if (res.phase === "stockMarket" || res.phase === "casino") {
+        await ctx.db.patch(gameId, { phase: res.phase, phaseData: res.phaseData, doublesCount: jailEscapeDoublesCount });
         return;
       }
       if (res.advance || res.endTurn) {
@@ -936,7 +961,7 @@ async function settleAuctionIfDone(ctx: any, gameId: any, game: any, state: Auct
 export const casinoAction = mutation({
   args: {
     gameId: v.id("games"),
-    action: v.union(v.literal("slots"), v.literal("over"), v.literal("under"), v.literal("pass")),
+    action: v.union(v.literal("participate"), v.literal("pass")),
   },
   handler: async (ctx, { gameId, action }) => {
     const userId = await getAuthUserId(ctx);
@@ -944,37 +969,33 @@ export const casinoAction = mutation({
     const { game, player, players } = await requirePlayer(ctx, gameId, userId);
     if (game.status !== "playing") throw new Error("Game not in progress");
     if (game.phase !== "casino") throw new Error("Not at the Casino right now");
-    const turnPlayer = players[game.turn];
-    if (turnPlayer._id !== player._id) throw new Error("Not your turn");
+    if (players[game.turn]._id !== player._id) throw new Error("Not your turn");
     if (action === "pass") {
-      await ctx.db.patch(gameId, { phase: "manage", phaseData: {}, lastActionAt: now() });
+      await ctx.db.patch(gameId, { phase: game.doublesCount > 0 ? "roll" : "manage", phaseData: {}, lastActionAt: now() });
       await log(ctx, gameId, player._id, "casino", `${player.name} skipped the Casino.`);
       return;
     }
     const guard = canGamble(player.money);
     if (guard) throw new Error(guard);
-    const fresh = (await ctx.db.get(player._id))!;
-    await ctx.db.patch(player._id, { money: fresh.money - CASINO_STAKE });
-    if (action === "slots") {
-      const reels = rollReels();
-      const { outcome, payout } = spinSlots(reels);
-      const label = outcome === "jackpot" ? "JACKPOT 🎉" : outcome === "pair" ? "a pair" : "nothing";
-      if (payout > 0) {
-        const after = (await ctx.db.get(player._id))!;
-        await ctx.db.patch(player._id, { money: after.money + payout });
+    const reward = drawCasinoReward();
+    const moneyAfterFee = player.money - CASINO_STAKE;
+    if (reward === "property") {
+      const deed = firstUnownedDeed(players.flatMap((candidate) => candidate.properties));
+      if (deed) {
+        await ctx.db.patch(player._id, { money: moneyAfterFee, properties: [...player.properties, deed.index] });
+        await log(ctx, gameId, player._id, "casino", `${player.name} paid $${CASINO_STAKE} and won ${deed.name}!`);
+      } else {
+        await ctx.db.patch(player._id, { money: moneyAfterFee });
+        await log(ctx, gameId, player._id, "casino", `${player.name} paid $${CASINO_STAKE}, drew a property prize, but no deeds remain.`);
       }
-      await log(ctx, gameId, player._id, "casino", `${player.name} spun 🎰 [${reels.join("] [")}] — ${label}${payout > 0 ? `, wins $${payout}!` : ". Tough luck."}`);
+    } else if (reward === "cash") {
+      await ctx.db.patch(player._id, { money: moneyAfterFee + CASINO_CASH_PRIZE });
+      await log(ctx, gameId, player._id, "casino", `${player.name} paid $${CASINO_STAKE} and won $${CASINO_CASH_PRIZE}!`);
     } else {
-      const [d1, d2] = rollDice();
-      const sum = d1 + d2;
-      const { payout } = resolveOverUnder(action, sum);
-      if (payout > 0) {
-        const after = (await ctx.db.get(player._id))!;
-        await ctx.db.patch(player._id, { money: after.money + payout });
-      }
-      await log(ctx, gameId, player._id, "casino", `${player.name} bet ${action === "over" ? "OVER" : "UNDER"} 7 — rolled ${d1}+${d2}=${sum}${payout > 0 ? `, wins $${payout}!` : ". House wins."}`);
+      await ctx.db.patch(player._id, { money: moneyAfterFee });
+      await log(ctx, gameId, player._id, "casino", `${player.name} paid $${CASINO_STAKE} and won nothing.`);
     }
-    await ctx.db.patch(gameId, { phase: "manage", phaseData: {}, lastActionAt: now() });
+    await ctx.db.patch(gameId, { phase: game.doublesCount > 0 ? "roll" : "manage", phaseData: {}, lastActionAt: now() });
   },
 });
 
@@ -989,14 +1010,6 @@ export const stockMarketAction = mutation({
     if (!userId) throw new Error("Not signed in");
     const { game, player, players } = await requirePlayer(ctx, gameId, userId);
     if (game.status !== "playing") throw new Error("Game not in progress");
-    if (game.phase !== "stockMarket") throw new Error("Not at the Stock Market right now");
-    if (players[game.turn]._id !== player._id) throw new Error("Not your turn");
-    const nextPhase = game.doublesCount > 0 ? "roll" : "manage";
-    if (action === "pass") {
-      await ctx.db.patch(gameId, { phase: nextPhase, phaseData: {}, lastActionAt: now() });
-      await log(ctx, gameId, player._id, "stockMarket", `${player.name} passed on the Stock Market.`);
-      return;
-    }
     if (action === "cashOut") {
       const value = player.stockValue ?? 0;
       if ((player.stockInvestment ?? 0) <= 0) throw new Error("You do not have a Stock Market investment");
@@ -1005,8 +1018,20 @@ export const stockMarketAction = mutation({
         stockInvestment: 0,
         stockValue: 0,
       });
-      await ctx.db.patch(gameId, { phase: nextPhase, phaseData: {}, lastActionAt: now() });
+      if (game.phase === "stockMarket" && players[game.turn]._id === player._id) {
+        const nextPhase = game.doublesCount > 0 ? "roll" : "manage";
+        await ctx.db.patch(gameId, { phase: nextPhase, phaseData: {}, lastActionAt: now() });
+      }
       await log(ctx, gameId, player._id, "stockMarket", `${player.name} cashed out $${value} from the Stock Market.`);
+      return;
+    }
+
+    if (game.phase !== "stockMarket") throw new Error("Stock can only be purchased at the Stock Market space");
+    if (players[game.turn]._id !== player._id) throw new Error("Not your turn");
+    const nextPhase = game.doublesCount > 0 ? "roll" : "manage";
+    if (action === "pass") {
+      await ctx.db.patch(gameId, { phase: nextPhase, phaseData: {}, lastActionAt: now() });
+      await log(ctx, gameId, player._id, "stockMarket", `${player.name} passed on the Stock Market.`);
       return;
     }
 
@@ -1020,6 +1045,219 @@ export const stockMarketAction = mutation({
     });
     await ctx.db.patch(gameId, { phase: nextPhase, phaseData: {}, lastActionAt: now() });
     await log(ctx, gameId, player._id, "stockMarket", `${player.name} invested $${amount} in the Stock Market.`);
+  },
+});
+
+export const playBotStep = mutation({
+  args: { gameId: v.id("games") },
+  handler: async (ctx, { gameId }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not signed in");
+    const { game, players } = await requirePlayer(ctx, gameId, userId);
+    if (game.status !== "playing") return;
+
+    if (game.phase === "auction") {
+      const auction = await ctx.db.get(game.phaseData.auctionId as Id<"auctions">);
+      if (!auction || auction.status !== "active") return;
+      const bidderId = currentBidderId(auction as AuctionState<Id<"players">>);
+      const bidder = players.find((candidate) => candidate._id === bidderId);
+      if (!bidder?.isBot) return;
+      const style = bidder.botPlaystyle ?? "balanced";
+      const reserve = style === "conservative" ? 800 : style === "balanced" ? 500 : 200;
+      const propertyPrice = getSpace(auction.spaceIndex).price ?? 0;
+      const maxBid = Math.min(propertyPrice * (style === "aggressive" ? 1.25 : style === "balanced" ? 1 : 0.75), bidder.money - reserve);
+      const amount = auction.currentBid === 0 ? 1 : Math.ceil(auction.currentBid * 1.05);
+      const state: AuctionState<Id<"players">> = {
+        spaceIndex: auction.spaceIndex,
+        currentBid: auction.currentBid,
+        currentBidder: auction.currentBidder,
+        order: auction.order,
+        nextIndex: auction.nextIndex,
+        status: auction.status,
+      };
+      const next = amount <= maxBid
+        ? dropUnaffordable(auctionBidAction(state, bidder._id, amount, bidder.money), moneyById(players))
+        : dropUnaffordable(auctionPassAction(state, bidder._id), moneyById(players));
+      await ctx.db.patch(auction._id, {
+        currentBid: next.currentBid,
+        currentBidder: next.currentBidder,
+        order: next.order,
+        nextIndex: next.nextIndex,
+      });
+      await log(ctx, gameId, bidder._id, "auction", amount <= maxBid ? `${bidder.name} bids $${amount}.` : `${bidder.name} passes on the auction.`);
+      await settleAuctionIfDone(ctx, gameId, game, next);
+      return;
+    }
+
+    const bot = players[game.turn];
+    if (!bot?.isBot || bot.bankrupt) return;
+    const style = bot.botPlaystyle ?? "balanced";
+    const reserve = style === "conservative" ? 800 : style === "balanced" ? 500 : 200;
+    const finishLanding = async (res: { phase: string; phaseData: any; endTurn: boolean; advance: boolean }, doublesCount: number, doubles: boolean) => {
+      if (["debt", "buy", "stockMarket", "casino"].includes(res.phase)) {
+        await ctx.db.patch(gameId, { phase: res.phase, phaseData: res.phaseData, doublesCount });
+      } else if (doubles && !res.endTurn) {
+        await ctx.db.patch(gameId, { phase: "roll", phaseData: {}, doublesCount });
+      } else if (res.advance || res.endTurn) {
+        const next = nextAliveSeat(players, game.turn);
+        await ctx.db.patch(gameId, { turn: next, phase: players[next].inJail ? "jail" : "roll", phaseData: {}, doublesCount: 0 });
+      } else {
+        await ctx.db.patch(gameId, { phase: "manage", phaseData: {}, doublesCount });
+      }
+    };
+
+    if (game.phase === "roll") {
+      const dice = rollDice();
+      const sum = dice[0] + dice[1];
+      const doubles = isDoubles(dice);
+      const doublesCount = doubles ? game.doublesCount + 1 : 0;
+      await ctx.db.patch(gameId, { lastRoll: dice, lastRollSum: sum, lastActionAt: now() });
+      await log(ctx, gameId, bot._id, "roll", `${bot.name} rolled ${dice[0]} + ${dice[1]} = ${sum}${doubles ? " (doubles!)" : ""}.`);
+      await moveCurrentPlayerStock(ctx, gameId, bot);
+      if (doublesCount >= 3) {
+        await ctx.db.patch(bot._id, jailEntryState(bot));
+        const next = nextAliveSeat(players, game.turn);
+        await ctx.db.patch(gameId, { turn: next, phase: players[next].inJail ? "jail" : "roll", phaseData: {}, doublesCount: 0 });
+        return;
+      }
+      const moved = moveBySteps(bot as any, sum);
+      await ctx.db.patch(bot._id, { position: moved.position, money: bot.money + moved.salary });
+      const freshPlayers = await ctx.db.query("players").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect();
+      const freshBot = freshPlayers.find((candidate) => candidate._id === bot._id)!;
+      const res = await resolveLanding(ctx, game, freshBot, freshPlayers, moved.position, sum);
+      await finishLanding(res, doublesCount, doubles);
+      return;
+    }
+
+    if (game.phase === "jail") {
+      const bail = jailBailAmount(bot);
+      if (bot.getOutOfJailCards > 0) {
+        await ctx.db.patch(bot._id, { getOutOfJailCards: bot.getOutOfJailCards - 1, inJail: false, jailTurns: 0 });
+      } else if (bot.money >= bail && (style !== "conservative" || bot.jailTurns >= 2)) {
+        await ctx.db.patch(bot._id, { money: bot.money - bail, inJail: false, jailTurns: 0 });
+      } else {
+        const dice = rollDice();
+        const sum = dice[0] + dice[1];
+        await ctx.db.patch(gameId, { lastRoll: dice, lastRollSum: sum, lastActionAt: now() });
+        await log(ctx, gameId, bot._id, "roll", `${bot.name} rolled ${dice[0]} + ${dice[1]} = ${sum} in Jail.`);
+        await moveCurrentPlayerStock(ctx, gameId, bot);
+        if (isDoubles(dice)) {
+          await ctx.db.patch(bot._id, { inJail: false, jailTurns: 0 });
+          const moved = moveBySteps(bot as any, sum);
+          await ctx.db.patch(bot._id, { position: moved.position, money: bot.money + moved.salary });
+          const freshPlayers = await ctx.db.query("players").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect();
+          const freshBot = freshPlayers.find((candidate) => candidate._id === bot._id)!;
+          const res = await resolveLanding(ctx, game, freshBot, freshPlayers, moved.position, sum);
+          await finishLanding(res, 1, true);
+          return;
+        } else {
+          const jailTurns = bot.jailTurns + 1;
+          if (jailTurns >= 3) {
+            if (bot.money >= bail) {
+              await ctx.db.patch(bot._id, { money: bot.money - bail, inJail: false, jailTurns: 0 });
+            } else {
+              await ctx.db.patch(bot._id, { jailTurns });
+              await ctx.db.patch(gameId, { phase: "debt", phaseData: { amount: bail, to: "bank", reason: "jail bail", nextPhase: "endTurn", space: 10 } });
+              return;
+            }
+          } else {
+            await ctx.db.patch(bot._id, { jailTurns });
+          }
+          const next = nextAliveSeat(players, game.turn);
+          await ctx.db.patch(gameId, { turn: next, phase: players[next].inJail ? "jail" : "roll", phaseData: {}, doublesCount: 0 });
+          return;
+        }
+      }
+      await ctx.db.patch(gameId, { phase: "roll", phaseData: {} });
+      return;
+    }
+
+    if (game.phase === "buy") {
+      const spaceIndex = game.phaseData.space as number;
+      const space = getSpace(spaceIndex);
+      const price = space.price ?? 0;
+      if (bot.money >= price && (bot.money - price >= reserve || style === "aggressive")) {
+        await ctx.db.patch(bot._id, { money: bot.money - price, properties: [...bot.properties, spaceIndex] });
+        await ctx.db.patch(gameId, { phase: game.doublesCount > 0 ? "roll" : "manage", phaseData: {} });
+        await log(ctx, gameId, bot._id, "buy", `${bot.name} bought ${space.name} for $${price}.`);
+      } else {
+        const order = players.filter((candidate) => !candidate.bankrupt).sort((a, b) => a.seatIndex - b.seatIndex);
+        const state = dropUnaffordable(createAuction(buildBiddingOrder(order, game.turn), spaceIndex), moneyById(players));
+        const auctionId = await ctx.db.insert("auctions", { gameId, spaceIndex, currentBid: 0, currentBidder: undefined, order: state.order, nextIndex: state.nextIndex, status: "active", createdAt: now() });
+        await ctx.db.patch(gameId, { phase: "auction", phaseData: { auctionId, space: spaceIndex } });
+      }
+      return;
+    }
+
+    if (game.phase === "casino") {
+      if (bot.money < CASINO_STAKE || style === "conservative") {
+        await log(ctx, gameId, bot._id, "casino", `${bot.name} skipped the Casino.`);
+      } else {
+        const reward = drawCasinoReward();
+        const money = bot.money - CASINO_STAKE;
+        const deed = reward === "property" ? firstUnownedDeed(players.flatMap((candidate) => candidate.properties)) : null;
+        await ctx.db.patch(bot._id, {
+          money: money + (reward === "cash" ? CASINO_CASH_PRIZE : 0),
+          ...(deed ? { properties: [...bot.properties, deed.index] } : {}),
+        });
+        await log(ctx, gameId, bot._id, "casino", `${bot.name} paid $${CASINO_STAKE} and won ${deed ? deed.name : reward === "cash" ? `$${CASINO_CASH_PRIZE}` : "nothing"}.`);
+      }
+      await ctx.db.patch(gameId, { phase: game.doublesCount > 0 ? "roll" : "manage", phaseData: {} });
+      return;
+    }
+
+    if (game.phase === "stockMarket") {
+      const ratio = style === "conservative" ? 0.1 : style === "balanced" ? 0.25 : 0.5;
+      const amount = Math.max(0, Math.floor((bot.money - reserve) * ratio));
+      if (amount > 0) await ctx.db.patch(bot._id, { money: bot.money - amount, stockInvestment: (bot.stockInvestment ?? 0) + amount, stockValue: (bot.stockValue ?? 0) + amount });
+      await ctx.db.patch(gameId, { phase: game.doublesCount > 0 ? "roll" : "manage", phaseData: {} });
+      return;
+    }
+
+    if (game.phase === "debt") {
+      const amount = game.phaseData.amount as number;
+      let cash = bot.money;
+      const newlyMortgaged: number[] = [];
+      for (const spaceIndex of bot.properties) {
+        if (cash >= amount) break;
+        if (bot.mortgaged.includes(spaceIndex) || houseCount(bot as any, spaceIndex) > 0) continue;
+        const mortgage = getSpace(spaceIndex).mortgage ?? 0;
+        if (mortgage > 0) {
+          cash += mortgage;
+          newlyMortgaged.push(spaceIndex);
+        }
+      }
+      if (newlyMortgaged.length) await ctx.db.patch(bot._id, { money: cash, mortgaged: [...bot.mortgaged, ...newlyMortgaged] });
+      if (cash >= amount) {
+        const { to, reason, nextPhase } = game.phaseData;
+        await ctx.db.patch(bot._id, { money: cash - amount, ...(reason === "jail bail" ? { inJail: false, jailTurns: 0 } : {}) });
+        if (to !== "bank" && to !== "players") {
+          const creditor = await ctx.db.get(to as Id<"players">);
+          if (creditor) await ctx.db.patch(creditor._id, { money: creditor.money + amount });
+        }
+        if (nextPhase === "endTurn") {
+          const next = nextAliveSeat(players, game.turn);
+          await ctx.db.patch(gameId, { turn: next, phase: players[next].inJail ? "jail" : "roll", phaseData: {}, doublesCount: 0 });
+        } else {
+          await ctx.db.patch(gameId, { phase: game.doublesCount > 0 ? "roll" : "manage", phaseData: {} });
+        }
+      } else {
+        await ctx.db.patch(bot._id, { money: 0, houses: [], bankrupt: true });
+        const alive = players.filter((candidate) => !candidate.bankrupt && candidate._id !== bot._id);
+        if (alive.length <= 1) {
+          await ctx.db.patch(gameId, { status: "finished", phase: "gameOver", phaseData: { winner: alive[0]?._id ?? null }, winner: alive[0]?._id, endedAt: now(), lastActionAt: now() });
+        } else {
+          const next = nextAliveSeat(players, game.turn);
+          await ctx.db.patch(gameId, { turn: next, phase: players[next].inJail ? "jail" : "roll", phaseData: {}, doublesCount: 0 });
+        }
+      }
+      return;
+    }
+
+    if (game.phase === "manage") {
+      const next = nextAliveSeat(players, game.turn);
+      await ctx.db.patch(gameId, { turn: next, phase: players[next].inJail ? "jail" : "roll", phaseData: {}, doublesCount: 0, lastActionAt: now() });
+    }
   },
 });
 
